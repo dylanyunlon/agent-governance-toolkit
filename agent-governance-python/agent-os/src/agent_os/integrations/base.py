@@ -39,6 +39,19 @@ PII_PATTERNS: tuple[re.Pattern[str], ...] = (
     # ``(^|[^A-Za-z0-9])`` / ``([^A-Za-z0-9]|$)``, which consumes a character
     # and shifts the span offset that deny_if_pattern reports.
     re.compile(r"(?<![A-Za-z0-9])\d{3}[\s.-]\d{2}[\s.-]\d{4}(?![A-Za-z0-9])"),
+    # Context-cued bare SSN: a nine-digit run immediately after an explicit
+    # cue word (ssn, social security, soc sec) is almost certainly a Social
+    # Security Number even without separators.  Mirrors the pattern in
+    # CredentialRedactor.PII_PATTERNS so both detectors stay in lockstep.
+    # Issue #3592.
+    re.compile(
+        r"(?i)(?<![A-Za-z])(?:social\s+security(?:\s+(?:number|num|no|#))?"
+        r"|soc(?:ial)?\s*sec"
+        r"|ssn)"
+        r"[\s:=]*"
+        r"(\d{9})"
+        r"(?!\d)",
+    ),
     re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b"),
     re.compile(r"\b(?:4[0-9]{12}(?:[0-9]{3})?|5[1-5][0-9]{14})\b"),
     re.compile(

@@ -29,13 +29,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`agent-governance-toolkit-core` and `[full]` no longer require `agt-policies`
   as a base dependency.** `agt-policies>=5.1.0` (requiring an unpublished
   `agent-control-specification>=0.4.0b0`) had become a base dependency, blocking
-  `pip install`. Moved `agt-policies` to an opt-in `migrate` extra — existing
-  `agt migrate` users now need `pip install agent-governance-toolkit-core[migrate]`
-  — and made `agent-control-specification>=0.4.0b0,<0.5.0` a direct base
+  `pip install`. Moved `agt-policies` to an opt-in `migrate` extra, existing
+  `agt migrate` users now need `pip install agent-governance-toolkit-core[migrate]`,
+  and made `agent-control-specification>=0.4.0b0,<0.5.0` a direct base
   dependency instead, matching the version `agent_os` actually requires. A
   resolvable PyPI install of `agent-governance-toolkit-core` still depends on
   `agent-control-specification` 0.4.0b0 and `agt-policies` 5.1.0 being
-  published — tracked in #4019.
+  published, tracked in #4019.
+- **Cross-SDK credential redactor boundary fix** , TypeScript, Rust, and
+  Python credential-detection patterns contained boundary anchors that treated
+  `_` as a boundary-blocking character, so a valid GitHub, OpenAI, AWS, or
+  Google API secret annotated with `_old`, `_deprecated`, or `_rotated` (or
+  preceded by `session_`, `env_`, etc.) passed through completely unredacted.
+  All three SDKs now use `(?<![A-Za-z0-9])...(?![A-Za-z0-9])` lookaround
+  anchors that exclude only alphanumerics, matching the existing `SlackToken`
+  pattern which was already correct. C# fixes will land in #3934. The
+  `content_scanner.py` SSN pattern in `agent-rag-governance` is also updated
+  to accept space and dot separators and use the consistent lookaround anchor,
+  closing the detection-disagreement gap with `credential_redactor.py`
+  (#3933, #3815).
 - **Spell check no longer reports the base branch's own history as a
   contributor's changes** — `scripts/ci/changed_lines.py` diffed from the tip of
   the base branch, so on a branch behind `main` every line `main` had since

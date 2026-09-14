@@ -126,6 +126,20 @@ def create_sidecar_app() -> FastAPI:
             **req.context,
         }
         engine, generation = _policy_state
+
+        # Fail-closed (#3536): if the load generation is rejected (one or
+        # more policy files failed to parse), deny all actions so a broken
+        # deny policy is not silently bypassed.
+        if generation.policy_set_status == "rejected":
+            return EvaluateResponse(
+                decision="deny",
+                matched_rule=None,
+                reason=f"Policy set rejected: {generation.policies_failed} file(s) failed to load",
+                policy_name=None,
+                policy_set_id=generation.policy_set_id,
+                policy_set_status=generation.policy_set_status,
+            )
+
         result: PolicyDecision = engine.evaluate(agent_did=req.agent_did, context=ctx)
         return EvaluateResponse(
             decision=result.action,
@@ -266,9 +280,26 @@ def _load_policies() -> PolicyLoadGeneration:
     }
     canonical = json.dumps(manifest, sort_keys=True, separators=(",", ":"))
     failed = sum(entry.status == "failed" for entry in files)
+
+    # Fail-closed (#3536 review): when files fail, publish the generation
+    # as 'rejected' so evaluate_policy can deny.  Do NOT raise -- that
+    # would break #3909's generation model and its existing tests.
+    if failed:
+        failed_names = [e.name for e in files if e.status == "failed"]
+        logger.error(
+            "Policy load generation degraded: %d file(s) failed: %s",
+            failed, ", ".join(failed_names),
+        )
+
+    policy_set_status = "complete"
+    if failed:
+        policy_set_status = "rejected"
+    elif directory_status == "unavailable":
+        policy_set_status = "degraded"
+
     generation = PolicyLoadGeneration(
         policy_set_id="sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
-        policy_set_status="degraded" if failed or directory_status == "unavailable" else "complete",
+        policy_set_status=policy_set_status,
         policies_discovered=len(files),
         policies_loaded=len(files) - failed,
         policies_failed=failed,

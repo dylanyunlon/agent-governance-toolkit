@@ -109,6 +109,8 @@ DYLD
 DataQualityEvidence
 Dedup
 Defence
+demotes
+demoting
 Deque
 Deserialise
 Diffable

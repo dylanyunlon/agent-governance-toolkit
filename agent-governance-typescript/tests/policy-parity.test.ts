@@ -681,5 +681,19 @@ rules:
     expect(result.allowed).toBe(false);
     expect(result.matchedRule).toBe('org-block');
   });
+
+  it('loadPolicy rejects invalid scope at registration time', () => {
+    const engine = new PolicyEngine();
+    expect(() =>
+      engine.loadPolicy({
+        apiVersion: 'governance.toolkit/v1',
+        name: 'bad-scope-direct',
+        scope: 'organisation' as PolicyScope,
+        agents: ['*'],
+        rules: [],
+        default_action: 'deny',
+      }),
+    ).toThrow(/Invalid policy scope/);
+  });
 });
 

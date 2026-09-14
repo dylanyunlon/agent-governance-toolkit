@@ -42,7 +42,9 @@ If you relied on the silent demotion to `GLOBAL`, set the scope explicitly to
 **Additional TypeScript change:** The `PolicyScope` enum now includes
 `Organization = 'organization'`.  The `SCOPE_SPECIFICITY` map adds
 `Organization: 2` and bumps `Agent` from `2` to `3` to match the Python and
-.NET SDKs.
+.NET SDKs.  The numeric specificity values are an internal implementation
+detail — the string-based `resolutionTrace` is the stable contract — but if
+you logged or stored numeric specificity values, they will change.
 
 ---
 

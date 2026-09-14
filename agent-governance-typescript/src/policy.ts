@@ -391,8 +391,18 @@ export class PolicyEngine {
 
   // ΓöÇΓöÇ Rich Policy API ΓöÇΓöÇ
 
-  /** Load a Policy document into the engine. */
+  /** Load a Policy document into the engine.
+   *
+   * Validates the scope value so typos surface at registration time
+   * rather than silently demoting at first evaluation (#3536).
+   */
   loadPolicy(policy: Policy): void {
+    if (policy.scope && !VALID_SCOPE_VALUES.has(policy.scope as string)) {
+      throw new Error(
+        `Invalid policy scope '${policy.scope}' in policy '${policy.name}'. ` +
+        `Accepted values (case-sensitive): ${[...VALID_SCOPE_VALUES].sort().join(', ')}.`,
+      );
+    }
     this._policies.set(policy.name, policy);
   }
 

@@ -125,8 +125,12 @@ class McpAuthPolicy:
         Args:
             server_name: Name of the MCP server.
             auth_method: Authentication method being used.
-            url: Server URL used for TLS enforcement. When omitted, the
-                configured server entry URL is used.
+            url: The actual destination URL for this connection. When
+                ``require_tls`` is ``true``, the scheme of this URL is
+                checked against the TLS allowlist (``https``, ``wss``).
+                If empty, the configured ``entry.url`` is used as
+                fallback. Pass the trusted, live destination — not an
+                unverified value from the caller.
 
         Returns:
             AuthCheckResult indicating whether the connection is allowed.

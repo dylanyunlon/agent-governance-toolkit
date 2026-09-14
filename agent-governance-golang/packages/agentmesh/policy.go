@@ -36,6 +36,10 @@ var ValidScopes = map[PolicyScope]bool{
 
 // ValidateScope checks whether s is a recognised PolicyScope value.
 // It returns a non-nil error for misspelled, empty, or capitalised values.
+//
+// The Go SDK does not yet have a Policy document model (see #3680), so
+// callers that build PolicyRule values from YAML/JSON should call
+// ValidateScope before passing rules to NewPolicyEngine.
 func ValidateScope(s PolicyScope) error {
 	if !ValidScopes[s] {
 		return fmt.Errorf(

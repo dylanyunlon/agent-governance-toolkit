@@ -223,3 +223,212 @@ mcp_auth_policy:
 """)
         result = policy.check("legacy-server", auth_method="oauth2", url="http://mcp.internal/tools")
         assert result.allowed
+
+
+# ---------------------------------------------------------------
+# Parametrized TLS gate matrix
+# Sweep all combinations of caller-URL scheme × entry-URL scheme ×
+# require_tls. This is the "200-case matrix" carloshvp ran manually;
+# pinning it in CI prevents regressions.
+# ---------------------------------------------------------------
+
+_TLS_SCHEMES = ("https", "wss")
+_NON_TLS_SCHEMES = ("http", "ws", "ftp")
+
+
+def _url(scheme: str) -> str:
+    """Build a minimal valid URL for a scheme."""
+    if not scheme:
+        return ""
+    return f"{scheme}://mcp.internal/api"
+
+
+class TestTlsGateMatrix:
+    """Full caller-URL × entry-URL × require_tls sweep."""
+
+    @pytest.mark.parametrize("entry_scheme", _TLS_SCHEMES)
+    def test_tls_entry_no_caller_url_allowed(self, entry_scheme):
+        """TLS entry.url + no caller url → allowed."""
+        policy = McpAuthPolicy(servers=[
+            McpServerEntry(name="s", url=_url(entry_scheme),
+                           allowed_auth_methods=["oauth2"], require_tls=True),
+        ])
+        result = policy.check("s", "oauth2")
+        assert result.allowed, f"entry={entry_scheme} should be allowed"
+
+    @pytest.mark.parametrize("entry_scheme", _NON_TLS_SCHEMES)
+    def test_non_tls_entry_no_caller_url_denied(self, entry_scheme):
+        """Non-TLS entry.url + no caller url → denied."""
+        policy = McpAuthPolicy(servers=[
+            McpServerEntry(name="s", url=_url(entry_scheme),
+                           allowed_auth_methods=["oauth2"], require_tls=True),
+        ])
+        result = policy.check("s", "oauth2")
+        assert not result.allowed, f"entry={entry_scheme} should be denied"
+        assert "TLS" in result.reason
+
+    @pytest.mark.parametrize("caller_scheme", _TLS_SCHEMES)
+    @pytest.mark.parametrize("entry_scheme", _NON_TLS_SCHEMES)
+    def test_tls_caller_overrides_non_tls_entry(self, caller_scheme, entry_scheme):
+        """TLS caller url wins over non-TLS entry.url → allowed."""
+        policy = McpAuthPolicy(servers=[
+            McpServerEntry(name="s", url=_url(entry_scheme),
+                           allowed_auth_methods=["oauth2"], require_tls=True),
+        ])
+        result = policy.check("s", "oauth2", url=_url(caller_scheme))
+        assert result.allowed
+
+    @pytest.mark.parametrize("caller_scheme", _NON_TLS_SCHEMES)
+    @pytest.mark.parametrize("entry_scheme", _TLS_SCHEMES)
+    def test_non_tls_caller_overrides_tls_entry(self, caller_scheme, entry_scheme):
+        """Non-TLS caller url wins over TLS entry.url → denied."""
+        policy = McpAuthPolicy(servers=[
+            McpServerEntry(name="s", url=_url(entry_scheme),
+                           allowed_auth_methods=["oauth2"], require_tls=True),
+        ])
+        result = policy.check("s", "oauth2", url=_url(caller_scheme))
+        assert not result.allowed
+
+    @pytest.mark.parametrize("entry_scheme", list(_TLS_SCHEMES) + list(_NON_TLS_SCHEMES) + [""])
+    def test_require_tls_false_always_allows(self, entry_scheme):
+        """require_tls=False + any scheme → allowed."""
+        policy = McpAuthPolicy(servers=[
+            McpServerEntry(name="s", url=_url(entry_scheme) if entry_scheme else "",
+                           allowed_auth_methods=["oauth2"], require_tls=False),
+        ])
+        result = policy.check("s", "oauth2")
+        assert result.allowed
+
+    def test_both_empty_urls_allowed_s10_12(self):
+        """S10.12: both caller and entry url empty → allowed (no URL to check)."""
+        policy = McpAuthPolicy(servers=[
+            McpServerEntry(name="s", url="",
+                           allowed_auth_methods=["oauth2"], require_tls=True),
+        ])
+        result = policy.check("s", "oauth2", url="")
+        assert result.allowed
+
+
+class TestTlsGateEdgeCases:
+    """Edge cases not covered by the scheme matrix."""
+
+    def test_entry_url_bare_hostname_no_scheme_denied(self):
+        """A bare hostname (no scheme) is denied under require_tls."""
+        policy = McpAuthPolicy(servers=[
+            McpServerEntry(name="s", url="mcp.internal:8443",
+                           allowed_auth_methods=["oauth2"], require_tls=True),
+        ])
+        result = policy.check("s", "oauth2")
+        assert not result.allowed
+
+    def test_entry_url_uppercase_scheme_normalized(self):
+        """Scheme comparison is case-insensitive."""
+        policy = McpAuthPolicy(servers=[
+            McpServerEntry(name="s", url="HTTPS://mcp.internal/api",
+                           allowed_auth_methods=["oauth2"], require_tls=True),
+        ])
+        result = policy.check("s", "oauth2")
+        assert result.allowed
+
+    def test_caller_url_whitespace_treated_as_present(self):
+        """A caller URL containing only whitespace still has an empty scheme → denied."""
+        policy = McpAuthPolicy(servers=[
+            McpServerEntry(name="s", url="https://mcp.internal",
+                           allowed_auth_methods=["oauth2"], require_tls=True),
+        ])
+        result = policy.check("s", "oauth2", url="  ")
+        assert not result.allowed
+
+    def test_reason_message_includes_scheme(self):
+        """Denial reason must include the offending scheme for debugging."""
+        policy = McpAuthPolicy(servers=[
+            McpServerEntry(name="s", url="http://mcp.internal",
+                           allowed_auth_methods=["oauth2"], require_tls=True),
+        ])
+        result = policy.check("s", "oauth2")
+        assert "http" in result.reason.lower()
+        assert "TLS" in result.reason
+
+    def test_reason_message_includes_server_name(self):
+        """Denial reason must include the server name."""
+        policy = McpAuthPolicy(servers=[
+            McpServerEntry(name="finance-db", url="http://mcp.internal",
+                           allowed_auth_methods=["oauth2"], require_tls=True),
+        ])
+        result = policy.check("finance-db", "oauth2")
+        assert "finance-db" in result.reason
+
+    def test_add_then_check_entry_url_fallback(self):
+        """Dynamic add_server also benefits from entry.url fallback."""
+        policy = McpAuthPolicy()
+        policy.add_server(McpServerEntry(
+            name="dynamic", url="http://mcp.internal",
+            allowed_auth_methods=["oauth2"], require_tls=True,
+        ))
+        assert not policy.check("dynamic", "oauth2").allowed
+
+    def test_remove_server_clears_entry(self):
+        """After remove_server, server falls back to default policy."""
+        policy = McpAuthPolicy(servers=[
+            McpServerEntry(name="tmp", url="http://bad",
+                           allowed_auth_methods=["oauth2"], require_tls=True),
+        ])
+        assert not policy.check("tmp", "oauth2").allowed
+        policy.remove_server("tmp")
+        # Falls back to default (oauth2 is in default allowed)
+        assert policy.check("tmp", "oauth2").allowed
+
+    def test_multiple_servers_independent(self):
+        """TLS decision for one server does not affect another."""
+        policy = McpAuthPolicy(servers=[
+            McpServerEntry(name="secure", url="https://a.internal",
+                           allowed_auth_methods=["oauth2"], require_tls=True),
+            McpServerEntry(name="insecure", url="http://b.internal",
+                           allowed_auth_methods=["oauth2"], require_tls=True),
+        ])
+        assert policy.check("secure", "oauth2").allowed
+        assert not policy.check("insecure", "oauth2").allowed
+
+
+class TestTlsGateYamlIntegration:
+    """YAML round-trip tests for the TLS gate."""
+
+    def test_yaml_mixed_tls_servers(self):
+        policy = McpAuthPolicy.from_yaml("""
+mcp_auth_policy:
+  servers:
+    - name: prod-api
+      url: https://api.prod.internal
+      allowed_auth_methods: [mtls]
+      require_tls: true
+    - name: staging-api
+      url: http://api.staging.internal
+      allowed_auth_methods: [oauth2]
+      require_tls: true
+    - name: dev-local
+      url: ""
+      allowed_auth_methods: [oauth2]
+      require_tls: true
+    - name: monitoring
+      url: http://metrics.internal
+      allowed_auth_methods: [api_key]
+      require_tls: false
+""")
+        assert policy.check("prod-api", "mtls").allowed
+        assert not policy.check("staging-api", "oauth2").allowed
+        assert policy.check("dev-local", "oauth2").allowed  # S10.12
+        assert policy.check("monitoring", "api_key").allowed  # require_tls=false
+
+    def test_yaml_caller_url_overrides_configured(self):
+        policy = McpAuthPolicy.from_yaml("""
+mcp_auth_policy:
+  servers:
+    - name: flexible
+      url: http://mcp.internal
+      allowed_auth_methods: [oauth2]
+      require_tls: true
+""")
+        # Entry is http → denied without caller url
+        assert not policy.check("flexible", "oauth2").allowed
+        # Caller overrides with https → allowed
+        assert policy.check("flexible", "oauth2", url="https://mcp.secure.com").allowed

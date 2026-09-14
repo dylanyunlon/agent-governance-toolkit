@@ -103,3 +103,37 @@ untrusted caller. A caller that controls the `url` argument can claim any
 scheme. The TLS gate validates the *stated* destination; verifying that the
 connection actually reaches that destination is the transport layer's
 responsibility.
+
+## URL resolution truth table
+
+| Caller URL | Entry URL | `require_tls` | Effective URL | Result |
+|------------|-----------|---------------|---------------|--------|
+| `https://…` | `http://…` | `true` | caller (`https`) | ✅ allowed |
+| `http://…` | `https://…` | `true` | caller (`http`) | ❌ denied |
+| _(empty)_ | `https://…` | `true` | entry (`https`) | ✅ allowed |
+| _(empty)_ | `http://…` | `true` | entry (`http`) | ❌ denied |
+| _(empty)_ | _(empty)_ | `true` | _(none)_ | ✅ allowed (S10.12) |
+| _(any)_ | _(any)_ | `false` | _(skipped)_ | ✅ allowed |
+
+The caller URL always takes precedence when supplied. When both are empty,
+there is nothing to evaluate, so the gate permits the connection — this is
+fail-open on a missing URL, not fail-open on TLS.
+
+## Troubleshooting
+
+**"Server 'X' requires TLS but URL scheme '' is not in the TLS allowlist"**
+
+The entry has `require_tls: true` and a `url` with no scheme (e.g., a bare
+hostname like `mcp.internal:8443`). Add the scheme explicitly:
+`url: https://mcp.internal:8443`.
+
+**"Server 'X' requires TLS but URL scheme 'http' is not in the TLS allowlist"**
+
+The entry's configured URL or the caller-supplied URL uses `http`. Either
+update the URL to `https`, or set `require_tls: false` if TLS is genuinely
+not required for this server.
+
+**Connection allowed but entry.url is http — why?**
+
+If `require_tls` is `false`, the TLS gate is skipped entirely regardless of
+the URL scheme. Check that `require_tls: true` is set on the server entry.

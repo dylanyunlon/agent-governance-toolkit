@@ -126,6 +126,19 @@ class PolicyRule(BaseModel):
             parse_rate_limit(value)
         return value
 
+    # External backend delegation (issue #3911).  When set, a matching
+    # rule delegates the final allow/deny decision to the named backend
+    # registered in BackendRegistry.  The YAML condition acts as a
+    # routing predicate; the backend's own logic determines the outcome.
+    backend: Optional[str] = Field(
+        None,
+        description=(
+            "Name of a registered ExternalPolicyBackend to delegate to "
+            "when this rule matches.  The backend's decision replaces "
+            "the rule's own action."
+        ),
+    )
+
     # Approval workflow
     approvers: list[str] = Field(default_factory=list)
 
@@ -846,6 +859,73 @@ class PolicyEngine:
         """
         return parse_rate_limit(limit)
 
+    # ── Backend delegation (issue #3911) ──────────────────────
+
+    def _evaluate_backend(
+        self,
+        backend_name: str,
+        context: dict,
+        matched_rule: "PolicyRule",
+        policy_name: str,
+        start: datetime,
+    ) -> Optional["PolicyDecision"]:
+        """Delegate evaluation to a registered ExternalPolicyBackend.
+
+        Called when the winning YAML rule carries a ``backend`` field.
+        Returns a PolicyDecision, or None on lookup failure (caller falls
+        through to the rule's own action — fail-closed).
+        """
+        from agentmesh.governance.backend import BackendRegistry
+
+        try:
+            backend = BackendRegistry.get(backend_name)
+        except KeyError:
+            logger.error(
+                "Rule '%s' references backend '%s' which is not registered "
+                "(available: %s) — falling through to rule action",
+                matched_rule.name, backend_name,
+                BackendRegistry.list_backends() or ["(none)"],
+            )
+            return None
+
+        if not backend.healthy():
+            elapsed = (datetime.now(timezone.utc) - start).total_seconds() * 1000
+            logger.warning("Backend '%s' unhealthy — denying (fail-closed)", backend_name)
+            return PolicyDecision(
+                allowed=False, action="deny",
+                matched_rule=matched_rule.name, policy_name=policy_name,
+                reason=f"Backend '{backend_name}' is unhealthy (fail-closed)",
+                evaluated_at=start, evaluation_ms=elapsed,
+            )
+
+        action_type = (
+            context.get("action", {}).get("type", "unknown")
+            if isinstance(context.get("action"), dict)
+            else str(context.get("action", "unknown"))
+        )
+
+        try:
+            result = backend.evaluate(action_type, context)
+        except Exception as exc:
+            elapsed = (datetime.now(timezone.utc) - start).total_seconds() * 1000
+            logger.error("Backend '%s' errored: %s — denying (fail-closed)", backend_name, exc)
+            return PolicyDecision(
+                allowed=False, action="deny",
+                matched_rule=matched_rule.name, policy_name=policy_name,
+                reason=f"Backend '{backend_name}' errored: {exc}",
+                evaluated_at=start, evaluation_ms=elapsed,
+            )
+
+        elapsed = (datetime.now(timezone.utc) - start).total_seconds() * 1000
+        return PolicyDecision(
+            allowed=result.allowed,
+            action="allow" if result.allowed else "deny",
+            matched_rule=matched_rule.name, policy_name=policy_name,
+            reason=f"Backend '{backend_name}': {result.reason or ('allowed' if result.allowed else 'denied')}",
+            evaluated_at=start, evaluation_ms=elapsed,
+            metadata={"backend": backend_name, "backend_latency_ms": result.latency_ms},
+        )
+
     def get_policy(self, name: str) -> Optional[Policy]:
         """Get a loaded policy by name.
 
@@ -1138,6 +1218,17 @@ class PolicyEngine:
                     # the window so the (N+1)th matching call trips the limit.
                     self._increment_rate_limit(matched_rule, limit_key)
 
+                # Backend delegation (issue #3911): when the winning rule
+                # carries a ``backend`` field, delegate the final decision
+                # to the named ExternalPolicyBackend.
+                if matched_rule and matched_rule.backend:
+                    backend_decision = self._evaluate_backend(
+                        matched_rule.backend, context, matched_rule,
+                        winner.policy_name, start,
+                    )
+                    if backend_decision is not None:
+                        return backend_decision
+
                 return PolicyDecision(
                     allowed=(winner.action == "allow"),
                     action=winner.action,
@@ -1148,6 +1239,38 @@ class PolicyEngine:
                     evaluated_at=start,
                     evaluation_ms=elapsed,
                 )
+
+        # 1b. Backend registry fallback (issue #3911): when no YAML rule
+        # matched but external backends are registered, consult them in
+        # registration order.  ADR-0015: "backends are consulted only
+        # when no YAML rule matches."
+        from agentmesh.governance.backend import BackendRegistry
+
+        registered = BackendRegistry.list_backends()
+        if registered:
+            action_type = (
+                context.get("action", {}).get("type", "unknown")
+                if isinstance(context.get("action"), dict)
+                else str(context.get("action", "unknown"))
+            )
+            for backend_name in registered:
+                try:
+                    backend = BackendRegistry.get(backend_name)
+                    if not backend.healthy():
+                        logger.warning("Registered backend '%s' unhealthy, skipping", backend_name)
+                        continue
+                    result = backend.evaluate(action_type, context)
+                    elapsed = (datetime.now(timezone.utc) - start).total_seconds() * 1000
+                    return PolicyDecision(
+                        allowed=result.allowed,
+                        action="allow" if result.allowed else "deny",
+                        reason=f"Backend '{backend_name}': {result.reason or ('allowed' if result.allowed else 'denied')}",
+                        evaluated_at=start, evaluation_ms=elapsed,
+                        metadata={"backend": backend_name, "backend_latency_ms": result.latency_ms},
+                    )
+                except Exception as exc:
+                    logger.error("Registered backend '%s' errored: %s — trying next", backend_name, exc)
+                    continue
 
         # 2. Authority resolution (trust-based narrowing)
         if self._authority_resolver is not None:
@@ -1406,6 +1529,17 @@ def validate_policy_schema(yaml_content: str) -> list[str]:
                 errors.append(
                     f"Rule {i} ('{rule.get('name', '?')}'): "
                     f"invalid action '{action}', must be one of {valid_actions}"
+                )
+            backend = rule.get("backend")
+            if backend is not None and not isinstance(backend, str):
+                errors.append(
+                    f"Rule {i} ('{rule.get('name', '?')}'): "
+                    f"'backend' must be a string, got {type(backend).__name__}"
+                )
+            if isinstance(backend, str) and not backend.strip():
+                errors.append(
+                    f"Rule {i} ('{rule.get('name', '?')}'): "
+                    f"'backend' must not be empty"
                 )
 
     # Validate default_action

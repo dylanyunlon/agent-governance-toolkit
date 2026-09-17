@@ -4,22 +4,20 @@
 External Policy Backend Protocol
 
 Defines a unified interface for pluggable policy evaluators (OPA, Cedar, or
-any custom backend). Backends register themselves with BackendRegistry for
-discovery by name.
+any custom backend).  Backends register with BackendRegistry and are consulted
+automatically by ``PolicyEngine.evaluate()`` (issue #3911):
 
-Usage:
-    from agentmesh.governance.backend import (
-        ExternalPolicyBackend,
-        PolicyDecisionResult,
-        BackendRegistry,
-    )
+1. **Rule-level delegation** — a YAML rule with ``backend: opa`` routes
+   matching actions to the named backend.
+2. **Fallback evaluation** — when no YAML rule matches, registered backends
+   are consulted in registration order (ADR-0015).
 
-    # Register a backend
-    BackendRegistry.register(my_opa_evaluator)
+Usage::
 
-    # Retrieve by name
-    backend = BackendRegistry.get("opa")
-    decision = backend.evaluate("export", {"agent": {"role": "analyst"}})
+    from agentmesh.governance.backend import BackendRegistry
+    BackendRegistry.register(my_opa_backend)
+
+    # Now govern() / PolicyEngine.evaluate() will consult it.
 """
 
 from __future__ import annotations

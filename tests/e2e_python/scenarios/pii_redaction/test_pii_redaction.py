@@ -36,7 +36,7 @@ def run_pii_redaction() -> tuple[ScenarioResult, MockIntakeProcessor]:
     raw_values = (
         "SSN 123-45-6789, email person@example.test, "
         "api_key=sk-1234567890abcdefghijkl, "
-        "aws=AKIAIOSFODNN7EXAMPLE_old"
+        "access_token=AKIAIOSFODNN7EXAMPLE_old"
     )
     scrubber = MuteAgent(MutePolicy(enabled_builtins=["email", "ssn", "api_key"]))
     sanitized = scrubber.scrub_text(raw_values)

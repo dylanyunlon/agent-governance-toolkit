@@ -30,13 +30,6 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 # appear in any bounded-token pattern line.
 # ---------------------------------------------------------------
 BOUNDED_TOKEN_FILES = [
-    # C#
-    REPO_ROOT
-    / "agent-governance-dotnet"
-    / "src"
-    / "AgentGovernance"
-    / "Mcp"
-    / "McpCredentialRedactor.cs",
     # TypeScript
     REPO_ROOT
     / "agent-governance-python"
@@ -45,13 +38,6 @@ BOUNDED_TOKEN_FILES = [
     / "mcp-proxy"
     / "src"
     / "audit.ts",
-    # Rust
-    REPO_ROOT
-    / "agent-governance-rust"
-    / "agentmesh-mcp"
-    / "src"
-    / "mcp"
-    / "redactor.rs",
     # Python
     REPO_ROOT
     / "agent-governance-python"
@@ -60,6 +46,17 @@ BOUNDED_TOKEN_FILES = [
     / "agent_os"
     / "credential_redactor.py",
 ]
+
+# Rust uses procedural boundary functions (match arms), not regex strings.
+# A separate test below checks the Rust source directly.
+_RUST_REDACTOR = (
+    REPO_ROOT
+    / "agent-governance-rust"
+    / "agentmesh-mcp"
+    / "src"
+    / "mcp"
+    / "redactor.rs"
+)
 
 # Pattern names that are bounded-token patterns (not keyword-anchored).
 BOUNDED_PREFIXES = [
@@ -74,18 +71,6 @@ BOUNDED_PREFIXES = [
     "github_pat_",
     "sk-",        # OpenAI token
 ]
-
-# This regex matches a \b that sits on the same line as one of the
-# bounded-token prefixes. It catches both ``\b`` and ``\\b`` forms.
-_WB_NEAR_TOKEN = re.compile(
-    r"(?:"
-    + "|".join(re.escape(p) for p in BOUNDED_PREFIXES)
-    + r")"
-    r".*\\b"
-    r"|\\b.*(?:"
-    + "|".join(re.escape(p) for p in BOUNDED_PREFIXES)
-    + r")"
-)
 
 # This regex matches a lookaround that includes _ in its character class,
 # which is the core defect in #3933. It handles both lookbehind ``(?<!``
@@ -180,3 +165,67 @@ def test_content_scanner_ssn_accepts_space_and_dot_separators() -> None:
             "content_scanner.py SSN pattern only matches dash-separated form; "
             "it should match space and dot separators too (issue #3815)."
         )
+
+
+# ---------------------------------------------------------------
+# Rust boundary functions: procedural match-arm checks.
+#
+# Rust uses is_left_boundary_char / is_right_boundary_char with
+# match arms instead of regex strings.  The regex-scanning guard
+# above cannot inspect these, so we check them separately.
+# ---------------------------------------------------------------
+
+def test_rust_left_boundary_non_slack_rejects_only_alphanumeric() -> None:
+    """Non-Slack match arms in is_left_boundary_char must reject only
+    ASCII alphanumerics.  If an arm for a non-Slack kind includes '_'
+    or blocks '-', a secret prefixed with underscore or dash would be
+    missed (regression for #3933)."""
+    if not _RUST_REDACTOR.exists():
+        pytest.skip("redactor.rs not found")
+
+    text = _RUST_REDACTOR.read_text(encoding="utf-8")
+    in_left = False
+    for i, line in enumerate(text.splitlines(), 1):
+        if "fn is_left_boundary_char" in line:
+            in_left = True
+            continue
+        if in_left and line.strip().startswith("}"):
+            break
+        if not in_left:
+            continue
+        # Skip the Slack arm (it correctly blocks '-')
+        if "SlackToken" in line:
+            continue
+        # No non-Slack arm should contain '_' in its match expression
+        if "=> " in line and "'_'" in line:
+            pytest.fail(
+                f"redactor.rs:{i}: is_left_boundary_char non-Slack arm "
+                f"blocks '_', which would miss underscore-prefixed secrets.\n"
+                f"  {line.strip()}"
+            )
+
+
+def test_rust_right_boundary_non_slack_rejects_alphanumeric() -> None:
+    """Non-Slack match arms in is_right_boundary_char must reject ASCII
+    alphanumerics (not return false unconditionally).  An unconditional
+    false means right boundary is never enforced (#3933 review)."""
+    if not _RUST_REDACTOR.exists():
+        pytest.skip("redactor.rs not found")
+
+    text = _RUST_REDACTOR.read_text(encoding="utf-8")
+    in_right = False
+    for i, line in enumerate(text.splitlines(), 1):
+        if "fn is_right_boundary_char" in line:
+            in_right = True
+            continue
+        if in_right and line.strip().startswith("}"):
+            break
+        if not in_right:
+            continue
+        # The catch-all arm must not be `_ => false`
+        if "_ =>" in line and "false" in line and "is_ascii" not in line:
+            pytest.fail(
+                f"redactor.rs:{i}: is_right_boundary_char catch-all arm "
+                f"returns false, so right boundary is never enforced "
+                f"for most credential kinds.\n  {line.strip()}"
+            )

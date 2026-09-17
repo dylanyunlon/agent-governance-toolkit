@@ -295,4 +295,37 @@ describe('AuditLogger', () => {
     expect(entry.arguments.config).not.toContain('sk-FAKEFORTESTING');
     expect(entry.arguments.config).toContain('[REDACTED]');
   });
+
+  it('redacts OpenAI token preceded by hyphen (left-edge widening, pinned)', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'mcp-proxy-audit-'));
+    tempDirs.push(tempDir);
+
+    const logPath = join(tempDir, 'audit.log');
+    const logger = new AuditLogger({ path: logPath, format: 'json' });
+
+    logger.log({
+      type: 'ai.agentmesh.tool.invoked',
+      tool: 'echo',
+      decision: 'allow',
+      arguments: {
+        config: `my-${fakeOpenAiToken}`,
+      },
+    });
+
+    logger.close();
+
+    const stream = Reflect.get(logger, 'stream');
+    if (stream) {
+      await once(stream, 'finish');
+    }
+
+    const entry = JSON.parse(readFileSync(logPath, 'utf-8').trim()) as {
+      arguments: Record<string, unknown>;
+    };
+
+    // Left-edge widening: hyphen-prefixed OpenAI keys ARE redacted,
+    // aligned with the Python SDK's (?<![A-Za-z0-9]) anchor.
+    expect(entry.arguments.config).not.toContain('sk-FAKEFORTESTING');
+    expect(entry.arguments.config).toContain('[REDACTED]');
+  });
 });

@@ -51,6 +51,9 @@ AILLM
 AKIA
 AKIAFAKE
 AKIAFAKEFORTEST
+AKIAIOSFODNN
+AKIAXXXX
+fooghp
 AKIDEXAMPLE
 APIM
 APPI
@@ -661,6 +664,7 @@ lawcontinue
 levelname
 lookahead
 lookaround
+lookarounds
 lookbehind
 liamcrumm
 libagent

@@ -210,8 +210,9 @@ impl CredentialRedactor {
         for candidate in pattern.find_iter(input) {
             let previous = input[..candidate.start()].chars().next_back();
             let next = input[candidate.end()..].chars().next();
+            let last_consumed = input[..candidate.end()].chars().next_back();
             if previous.is_some_and(|ch| Self::is_left_boundary_char(kind, ch))
-                || next.is_some_and(|ch| Self::is_right_boundary_char(kind, ch))
+                || next.is_some_and(|ch| Self::is_right_boundary_char(kind, ch, last_consumed))
             {
                 continue;
             }
@@ -248,14 +249,23 @@ impl CredentialRedactor {
     /// Returns true when `ch` following the candidate means the match
     /// should be skipped. For most kinds an ASCII alphanumeric follower
     /// means the candidate is embedded in a longer token and should not
-    /// match — mirroring the `(?![A-Za-z0-9])` lookahead used by the
-    /// C#, TypeScript, and Python SDKs. `SlackToken` additionally
-    /// blocks `-` (its value class includes `-`). `GoogleApiKey`
-    /// accepts a trailing `-` followed by anything (strict superset of
-    /// the old `\b` behaviour, see #3934).
-    fn is_right_boundary_char(kind: CredentialKind, ch: char) -> bool {
+    /// match, mirroring the `(?![A-Za-z0-9])` lookahead used by the
+    /// TypeScript and Python SDKs. `SlackToken` additionally blocks `-`
+    /// (its value class includes `-`). `GoogleApiKey` accepts a trailing
+    /// `-` followed by anything (strict superset of the old `\b`
+    /// behaviour, mirroring `(?:(?![A-Za-z0-9])|(?<=-))` in the regex
+    /// SDKs, see #3934).
+    fn is_right_boundary_char(kind: CredentialKind, ch: char, last_consumed: Option<char>) -> bool {
         match kind {
             CredentialKind::SlackToken => ch.is_ascii_alphanumeric() || ch == '-',
+            CredentialKind::GoogleApiKey => {
+                // Superset rule: if the key's last consumed char is '-',
+                // never skip -- mirrors (?<=-)  in the regex SDKs.
+                if last_consumed == Some('-') {
+                    return false;
+                }
+                ch.is_ascii_alphanumeric()
+            }
             _ => ch.is_ascii_alphanumeric(),
         }
     }
@@ -580,6 +590,35 @@ mod tests {
         assert!(result.sanitized.contains("[REDACTED_OPENAI_TOKEN]"));
         assert!(!result.sanitized.contains(&token));
         assert!(result.detected.contains(&CredentialKind::OpenAiToken));
+    }
+
+    #[test]
+    fn redacts_openai_token_preceded_by_hyphen_left_edge_widening() {
+        // Pinning test: hyphen-prefixed OpenAI keys ARE redacted, aligning
+        // with the Python SDK's (?<![A-Za-z0-9]) anchor.  See audit doc
+        // "OpenAI left-edge widening" section.
+        let redactor = CredentialRedactor::new();
+        let token = format!("sk-FAKEFORTESTING{}", "x".repeat(20));
+        let result = redactor.redact(&format!("my-{token}"));
+        assert!(result.sanitized.contains("[REDACTED_OPENAI_TOKEN]"));
+        assert!(!result.sanitized.contains(&token));
+        assert!(result.detected.contains(&CredentialKind::OpenAiToken));
+    }
+
+    #[test]
+    fn redacts_google_api_key_ending_in_hyphen_when_glued() {
+        // Superset rule: a key whose last value char is '-' followed by
+        // alnum must still be redacted, mirroring (?:(?![A-Za-z0-9])|(?<=-))
+        // in the regex SDKs.
+        let redactor = CredentialRedactor::new();
+        let key = format!("AIza{}-", "A".repeat(34));
+        let input = format!("{key}X");
+        let result = redactor.redact(&input);
+        assert!(
+            result.sanitized.contains("[REDACTED_GOOGLE_API_KEY]"),
+            "Google key ending in '-' followed by 'X' should be redacted: got '{}'",
+            result.sanitized
+        );
     }
 
     #[test]

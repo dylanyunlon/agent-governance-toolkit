@@ -138,36 +138,8 @@ rules:
 # ── validate_policy_schema coverage ──────────────────────────
 
 
-class TestValidatePolicySchemaScopeCheck:
-    def test_valid_scope_passes(self):
-        yaml_content = """
-apiVersion: governance.toolkit/v1
-name: valid
-scope: tenant
-rules: []
-"""
-        errors = validate_policy_schema(yaml_content)
-        assert not any("scope" in e.lower() for e in errors)
-
-    def test_invalid_scope_reported(self):
-        yaml_content = """
-apiVersion: governance.toolkit/v1
-name: bad
-scope: organisation
-rules: []
-"""
-        errors = validate_policy_schema(yaml_content)
-        assert any("scope" in e.lower() for e in errors)
-
-    def test_missing_scope_defaults_without_error(self):
-        """A policy with no scope field defaults to 'global' — no error."""
-        yaml_content = """
-apiVersion: governance.toolkit/v1
-name: no-scope
-rules: []
-"""
-        errors = validate_policy_schema(yaml_content)
-        assert not any("scope" in e.lower() for e in errors)
+# TestValidatePolicySchemaScopeCheck removed — same cases already
+# exist in test_policy_schema.py as TestSchemaValidationScope.
 
 
 # ── Evaluate-time warning (defence-in-depth) ─────────────────
@@ -208,8 +180,8 @@ class TestEvaluateScopeWarning:
             result = engine.evaluate("a", {"action": {"type": "read"}})
 
         assert "unrecognised scope" in caplog.text.lower()
-        # The rule should still match (demoted to GLOBAL, but it is the
-        # only candidate).
+        # The rule should still match (ranked at AGENT — max specificity,
+        # fail-closed — and it is the only candidate).
         assert result.matched_rule == "r1"
 
 

@@ -155,20 +155,27 @@ public static class PolicyConflictResolver
     /// <returns>The parsed <see cref="PolicyScope"/>.</returns>
     public static PolicyScope ParseScope(string? value)
     {
-        var result = value?.ToLowerInvariant() switch
+        var lowered = value?.ToLowerInvariant();
+        var result = lowered switch
         {
             "global" => PolicyScope.Global,
             "tenant" => PolicyScope.Tenant,
             "organization" => PolicyScope.Organization,
             "agent" => PolicyScope.Agent,
-            _ => PolicyScope.Global
+            // Fail-closed: rank at Agent (max specificity) so a
+            // corrupted deny cannot lose to a global allow (#3536).
+            _ => PolicyScope.Agent
         };
 
-        if (value is not null && !ValidScopes.Contains(value))
+        // Warn only when the switch actually fell through to default.
+        // A case-insensitive match (e.g. "Agent" → Agent) is fine.
+        if (lowered is not null
+            && lowered != "global" && lowered != "tenant"
+            && lowered != "organization" && lowered != "agent")
         {
             System.Diagnostics.Trace.TraceWarning(
-                $"Policy has unrecognised scope '{value}' — demoting to Global. " +
-                $"This weakens the policy under MostSpecificWins. " +
+                $"Policy has unrecognised scope '{value}' — ranking at Agent " +
+                $"(max specificity, fail-closed). " +
                 $"Valid scopes: {string.Join(", ", ValidScopes)}.");
         }
 

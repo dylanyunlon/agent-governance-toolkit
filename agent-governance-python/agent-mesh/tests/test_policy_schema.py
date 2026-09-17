@@ -210,6 +210,20 @@ rules: []
         assert any("scope" in e.lower() for e in errors)
 
 
+    def test_non_string_scope_reported(self):
+        """scope: [agent] must return an error, not raise TypeError (#3536 review)."""
+        yaml_content = """
+apiVersion: governance.toolkit/v1
+name: list-scope
+scope:
+  - agent
+rules: []
+"""
+        errors = validate_policy_schema(yaml_content)
+        assert any("scope" in e.lower() for e in errors)
+        assert any("string" in e.lower() for e in errors)
+
+
 class TestPolicyEngineWithVersioning:
     def test_engine_loads_versioned_policy(self):
         engine = PolicyEngine()

@@ -866,16 +866,18 @@ class PolicyEngine:
                 try:
                     scope = PolicyScope(policy.scope)
                 except ValueError:
+                    # Fail-closed: rank at AGENT (max specificity) so a
+                    # corrupted deny can never lose to a valid global allow
+                    # under most_specific_wins.  GLOBAL would be permissive.
                     logger.warning(
                         "Policy '%s' has unrecognised scope %r — "
-                        "demoting to GLOBAL.  This weakens the policy "
-                        "under most_specific_wins.  Fix the scope value "
-                        "to one of %s.",
+                        "ranking at AGENT (max specificity, fail-closed).  "
+                        "Fix the scope value to one of %s.",
                         policy.name,
                         policy.scope,
                         [s.value for s in PolicyScope],
                     )
-                    scope = PolicyScope.GLOBAL
+                    scope = PolicyScope.AGENT
 
                 for rule in policy.rules:
                     if rule.stage != stage:
@@ -1183,7 +1185,11 @@ def validate_policy_schema(yaml_content: str) -> list[str]:
     from agentmesh.governance.conflict_resolution import PolicyScope
 
     valid_scopes = {s.value for s in PolicyScope}
-    if scope_value not in valid_scopes:
+    if not isinstance(scope_value, str):
+        errors.append(
+            f"Invalid scope: expected a string, got {type(scope_value).__name__}"
+        )
+    elif scope_value not in valid_scopes:
         errors.append(
             f"Invalid scope: '{scope_value}', "
             f"must be one of {sorted(valid_scopes)}"

@@ -397,7 +397,7 @@ export class PolicyEngine {
    * rather than silently demoting at first evaluation (#3536).
    */
   loadPolicy(policy: Policy): void {
-    if (policy.scope && !VALID_SCOPE_VALUES.has(policy.scope as string)) {
+    if (policy.scope !== undefined && !VALID_SCOPE_VALUES.has(policy.scope as string)) {
       throw new Error(
         `Invalid policy scope '${policy.scope}' in policy '${policy.name}'. ` +
         `Accepted values (case-sensitive): ${[...VALID_SCOPE_VALUES].sort().join(', ')}.`,
@@ -486,20 +486,21 @@ export class PolicyEngine {
       const candidates: CandidateDecision[] = [];
       for (const policy of applicable) {
         let scope: PolicyScope;
-        const rawScope = policy.scope as string;
-        if (VALID_SCOPE_VALUES.has(rawScope)) {
+        const rawScope = policy.scope ?? PolicyScope.Global;
+        if (VALID_SCOPE_VALUES.has(rawScope as string)) {
           scope = rawScope as PolicyScope;
         } else {
-          // Defence-in-depth: dataToPolicy already validates scope at
-          // load time, but a direct loadPolicy() call with a hand-built
-          // object may still reach here.  Log so the misconfiguration is
-          // observable rather than silently demoting the policy.
+          // Defence-in-depth: dataToPolicy and loadPolicy already
+          // validate scope, but a direct loadPolicy() with a hand-built
+          // object may reach here.  Fail-closed: rank at Agent (max
+          // specificity) so a corrupted deny cannot lose to a global
+          // allow under MostSpecificWins (#3536 review feedback).
           console.warn(
             `Policy '${policy.name}' has unrecognised scope '${rawScope}' — ` +
-            `demoting to Global.  This weakens the policy under ` +
-            `MostSpecificWins.  Valid scopes: ${[...VALID_SCOPE_VALUES].sort().join(', ')}`,
+            `ranking at Agent (max specificity, fail-closed).  ` +
+            `Valid scopes: ${[...VALID_SCOPE_VALUES].sort().join(', ')}`,
           );
-          scope = PolicyScope.Global;
+          scope = PolicyScope.Agent;
         }
 
         for (const rule of policy.rules) {

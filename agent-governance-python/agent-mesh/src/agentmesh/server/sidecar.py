@@ -189,22 +189,42 @@ def _load_policies() -> None:
         _loaded_count = 0
         return
 
+    # Build into a staging engine first; swap only after ALL files load
+    # successfully.  The previous code caught Exception per file and
+    # skipped, which silently dropped a deny policy whose only defect
+    # was a misspelled scope — flipping the directory's effective
+    # decision from deny to allow (issue #3536, review feedback).
+    from agentmesh.governance.policy import PolicyEngine as _PE
+
+    staging = _PE(conflict_strategy=_engine._conflict_strategy.value)
     count = 0
+    errors: list[tuple[str, Exception]] = []
+
     for f in sorted(policy_path.glob("*.yaml")):
         try:
-            _engine.load_yaml(f.read_text())
+            staging.load_yaml(f.read_text())
             count += 1
             logger.info("Loaded policy: %s", f.name)
         except Exception as exc:
-            logger.warning("Skipped %s: %s", f.name, exc)
+            errors.append((f.name, exc))
 
     for f in sorted(policy_path.glob("*.json")):
         try:
-            _engine.load_json(f.read_text())
+            staging.load_json(f.read_text())
             count += 1
         except Exception as exc:
-            logger.warning("Skipped %s: %s", f.name, exc)
+            errors.append((f.name, exc))
 
+    if errors:
+        for name, exc in errors:
+            logger.error("Policy load failed for %s: %s", name, exc)
+        raise RuntimeError(
+            f"{len(errors)} policy file(s) failed to load: "
+            + ", ".join(name for name, _ in errors)
+        )
+
+    # All loaded — swap atomically
+    _engine._policies = staging._policies
     _loaded_count = count
     logger.info("Loaded %d policies from %s", count, _policy_dir)
 

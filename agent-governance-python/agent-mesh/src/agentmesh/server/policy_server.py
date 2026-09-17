@@ -52,6 +52,11 @@ def _load_policies() -> None:
     _trust_policies = []
     governance_count = 0
 
+    # Fail-closed loader: a file that fails to parse (e.g. invalid scope)
+    # must not be silently skipped — that would drop a deny policy and
+    # flip the directory's effective decision from deny to allow (#3536).
+    errors: list[tuple[str, Exception]] = []
+
     for f in sorted(policy_path.glob("*.yaml")):
         try:
             _engine.load_yaml(f.read_text())
@@ -63,14 +68,22 @@ def _load_policies() -> None:
                 _trust_policies.append(tp)
                 logger.info("Loaded trust policy: %s", f.name)
             except Exception as exc:
-                logger.warning("Skipped %s: %s", f.name, exc)
+                errors.append((f.name, exc))
 
     for f in sorted(policy_path.glob("*.json")):
         try:
             _engine.load_json(f.read_text())
             governance_count += 1
         except Exception as exc:
-            logger.warning("Skipped %s: %s", f.name, exc)
+            errors.append((f.name, exc))
+
+    if errors:
+        for name, exc in errors:
+            logger.error("Policy load failed for %s: %s", name, exc)
+        raise RuntimeError(
+            f"{len(errors)} policy file(s) failed to load: "
+            + ", ".join(name for name, _ in errors)
+        )
 
     if _trust_policies:
         _trust_evaluator = PolicyEvaluator(_trust_policies)

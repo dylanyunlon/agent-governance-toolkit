@@ -24,14 +24,20 @@ The fix validates scope at the earliest possible point in each SDK:
 | SDK | Validation site | Mechanism |
 |-----|-----------------|-----------|
 | Python | `Policy` model | `field_validator("scope")` derives accepted values from `PolicyScope` |
-| TypeScript | `dataToPolicy()` | Checks against `VALID_SCOPE_VALUES` set derived from enum |
+| TypeScript | `dataToPolicy()` + `loadPolicy()` | Checks against `VALID_SCOPE_VALUES` set derived from enum |
 | .NET | `Policy.FromDocument()` | Checks against `PolicyConflictResolver.ValidScopes` |
+| Go | `NewPolicyEngine()` | Calls `ValidateScope()`, corrects to `"agent"` (fail-closed) |
+| Rust | serde deserialization | `rename_all = "snake_case"` rejects unknown variants (pre-existing) |
 
-All three SDKs also retain the runtime fallback in `evaluate()` /
-`evaluatePolicy()` but now **log a warning** instead of demoting silently.
-The fallback is kept because pydantic (Python) does not re-validate on
-attribute assignment, and the TS/NET engines accept hand-built policy objects
-via `loadPolicy()`.
+All SDKs retain the runtime fallback in `evaluate()` / `evaluatePolicy()` but
+now **log a warning and rank at AGENT** (max specificity, fail-closed) instead
+of silently demoting to GLOBAL. The fallback is kept because pydantic (Python)
+does not re-validate on attribute assignment, and the TS/NET engines accept
+hand-built policy objects via `loadPolicy()`.
+
+The Python sidecar and policy-server loaders (`sidecar.py`, `policy_server.py`)
+have been hardened to fail-closed: if any policy file fails to load, the entire
+directory is rejected instead of silently skipping the broken file.
 
 Additionally, the TypeScript `PolicyScope` enum gains the `Organization`
 member for parity with Python and .NET.
@@ -50,7 +56,7 @@ member for parity with Python and .NET.
 
 | Dimension | Direction |
 |-----------|-----------|
-| Authorization bypass via scope typo | **Closed.** A misspelled scope is now rejected at load time. The failure mode moves from silent permissive demotion to a loud construction error. |
+| Authorization bypass via scope typo | **Mitigated.** A misspelled scope is rejected at `Policy` construction and at `loadPolicy()` / `FromDocument()`.  The sidecar and policy-server loaders have been hardened to fail-closed (reject the entire directory instead of skipping individual files).  The runtime evaluate() fallback now ranks an unrecognised scope at AGENT (max specificity, fail-closed) instead of GLOBAL. |
 | Existing valid configurations | **Unchanged.** All four valid scope values (`global`, `tenant`, `organization`, `agent`) are accepted. The `organization` scope was already supported in Python and .NET; it is now added to TypeScript. |
 | Backwards compatibility | **Breaking for invalid configurations only.** Any policy file with a misspelled scope that was previously loaded (and silently weakened) will now fail to load. This is the desired behavior — those policies were never enforced at their intended scope. |
 | New attack surface | **None.** No new inputs, network exposure, secrets, or trust decisions are introduced. The fix only narrows acceptance at existing decision points. |
@@ -81,8 +87,8 @@ TypeScript (5 nodes):
 
 ## Test coverage
 
-Each regression test was verified to fail with its fix reverted and pass with
-it applied.
+Python tests pass locally.  TS and .NET tests require their respective
+toolchains; they should be verified in CI.
 
 | Test file | Test | Validates |
 |-----------|------|-----------|

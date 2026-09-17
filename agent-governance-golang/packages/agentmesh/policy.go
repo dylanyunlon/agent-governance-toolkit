@@ -5,6 +5,7 @@ package agentmesh
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"strings"
 	"sync"
@@ -77,12 +78,40 @@ type PolicyEngine struct {
 }
 
 // NewPolicyEngine creates a PolicyEngine with the supplied rules.
+// Rules with an invalid Scope are logged and their scope is set to
+// "agent" (max specificity, fail-closed) rather than silently
+// demoting to "global" (#3536).
 func NewPolicyEngine(rules []PolicyRule) *PolicyEngine {
+	for i := range rules {
+		if rules[i].Scope != "" {
+			if err := ValidateScope(rules[i].Scope); err != nil {
+				log.Printf("[WARN] rule %d (%q): %v — ranking at agent (fail-closed)", i, rules[i].Action, err)
+				rules[i].Scope = "agent"
+			}
+		}
+	}
 	return &PolicyEngine{
 		rules:      rules,
 		rateLimits: make(map[string]*rateLimitState),
 		backends:   make([]ExternalPolicyBackend, 0),
 	}
+}
+
+// NewPolicyEngineStrict is like NewPolicyEngine but returns an error
+// on any invalid scope instead of fail-closed correction.
+func NewPolicyEngineStrict(rules []PolicyRule) (*PolicyEngine, error) {
+	for i, r := range rules {
+		if r.Scope != "" {
+			if err := ValidateScope(r.Scope); err != nil {
+				return nil, fmt.Errorf("rule %d (%q): %w", i, r.Action, err)
+			}
+		}
+	}
+	return &PolicyEngine{
+		rules:      rules,
+		rateLimits: make(map[string]*rateLimitState),
+		backends:   make([]ExternalPolicyBackend, 0),
+	}, nil
 }
 
 // AddBackend registers an external policy backend consulted when no native rule matches.

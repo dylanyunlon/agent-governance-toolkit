@@ -137,8 +137,9 @@ impl PolicyScope {
         }
     }
 
-    /// The set of valid scope string values.
-    pub const VALID_VALUES: &'static [&'static str] = &["global", "tenant", "organization", "agent"];
+    // VALID_VALUES removed: serde's rename_all = "snake_case" already
+    // rejects unknown variants at deserialization, so a hand-maintained
+    // list would drift with no benefit (#3536 review feedback).
 }
 
 /// A candidate decision produced by a single policy rule evaluation.
@@ -401,12 +402,6 @@ mod tests {
     fn test_organization_scope_specificity() {
         assert!(PolicyScope::Tenant.specificity() < PolicyScope::Organization.specificity());
         assert!(PolicyScope::Organization.specificity() < PolicyScope::Agent.specificity());
-    }
-
-    #[test]
-    fn test_valid_scope_values_count() {
-        assert_eq!(PolicyScope::VALID_VALUES.len(), 4);
-        assert!(PolicyScope::VALID_VALUES.contains(&"organization"));
     }
 
     #[test]

@@ -31,7 +31,7 @@ export class AuditLogger {
     /(?<![A-Za-z0-9])sk-[A-Za-z0-9][A-Za-z0-9_-]{18,}(?![A-Za-z0-9])/g,
     /(?<![A-Za-z0-9-])xox[abprs]-[A-Za-z0-9-]+(?![A-Za-z0-9-])/g,
     /(?<![A-Za-z0-9])AKIA[A-Z0-9]{16}(?![A-Za-z0-9])/g,
-    /(?<![A-Za-z0-9])AIza[0-9A-Za-z\-_]{35}(?![A-Za-z0-9])/g,
+    /(?<![A-Za-z0-9])AIza[0-9A-Za-z\-_]{35}(?:(?![A-Za-z0-9])|(?<=-))/g,
     /-----BEGIN (?<label>(?:(?:RSA|EC|DSA|OPENSSH|ENCRYPTED) )?PRIVATE KEY)-----(?:\r?\n[!-~ \t]*)*?\r?\n-----END \k<label>-----/g,
   ];
 

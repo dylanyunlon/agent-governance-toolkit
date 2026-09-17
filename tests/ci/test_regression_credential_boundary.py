@@ -88,9 +88,10 @@ _WB_NEAR_TOKEN = re.compile(
 )
 
 # This regex matches a lookaround that includes _ in its character class,
-# which is the core defect in #3933.
+# which is the core defect in #3933. It handles both lookbehind ``(?<!``
+# / ``(?<=`` and lookahead ``(?!`` / ``(?=`` forms.
 _UNDERSCORE_IN_LOOKAROUND = re.compile(
-    r"\(\?[<>!]=?\[A-Za-z0-9[^\]]*_[^\]]*\]"
+    r"\(\?<?[!=]\[A-Za-z0-9[^\]]*_[^\]]*\]"
 )
 
 

@@ -90,7 +90,7 @@ public sealed class McpCredentialRedactor
          "[REDACTED_AWS_ACCESS_KEY]"),
 
         (CredentialKind.GoogleApiKey,
-         new Regex(@"(?<![A-Za-z0-9])AIza[0-9A-Za-z\-_]{35}(?![A-Za-z0-9])", RegexOptions.Compiled, RegexTimeout),
+         new Regex(@"(?<![A-Za-z0-9])AIza[0-9A-Za-z\-_]{35}(?:(?![A-Za-z0-9])|(?<=-))", RegexOptions.Compiled, RegexTimeout),
          "[REDACTED_GOOGLE_API_KEY]"),
 
         (CredentialKind.PemPrivateKey,

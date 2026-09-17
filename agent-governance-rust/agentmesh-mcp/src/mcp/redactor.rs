@@ -246,16 +246,17 @@ impl CredentialRedactor {
     }
 
     /// Returns true when `ch` following the candidate means the match
-    /// is a prefix of a longer value that the pattern already covers,
-    /// so it should be skipped. Only `SlackToken` needs a right guard
-    /// because its value class (`[A-Za-z0-9-]+`) is greedy and a
-    /// trailing `-` is part of the token. All other kinds either have
-    /// a fixed length or a value class that already terminates at
-    /// non-value characters.
+    /// should be skipped. For most kinds an ASCII alphanumeric follower
+    /// means the candidate is embedded in a longer token and should not
+    /// match — mirroring the `(?![A-Za-z0-9])` lookahead used by the
+    /// C#, TypeScript, and Python SDKs. `SlackToken` additionally
+    /// blocks `-` (its value class includes `-`). `GoogleApiKey`
+    /// accepts a trailing `-` followed by anything (strict superset of
+    /// the old `\b` behaviour, see #3934).
     fn is_right_boundary_char(kind: CredentialKind, ch: char) -> bool {
         match kind {
             CredentialKind::SlackToken => ch.is_ascii_alphanumeric() || ch == '-',
-            _ => false,
+            _ => ch.is_ascii_alphanumeric(),
         }
     }
 
@@ -393,12 +394,17 @@ mod tests {
     }
 
     #[test]
-    fn does_not_redact_embedded_github_token_lookalikes() {
+    fn redacts_github_token_glued_to_underscore_prefix() {
+        // The updated left boundary treats `_` as a valid edge, so a
+        // GitHub token preceded by `prefix_` is now detected. This is
+        // the correct behaviour: `_` is a separator, not part of the
+        // token, and secrets annotated with prefixes like `session_` or
+        // `env_` must be caught (issue #3933).
         let redactor = CredentialRedactor::new();
         for text in ["prefix_ghp_FAKEFORTESTING000000000000000000"] {
             let result = redactor.redact(text);
-            assert_eq!(result.sanitized, text);
-            assert!(result.detected.is_empty());
+            assert_eq!(result.sanitized, "prefix_[REDACTED_GITHUB_TOKEN]");
+            assert!(result.detected.contains(&CredentialKind::GitHubToken));
         }
     }
 

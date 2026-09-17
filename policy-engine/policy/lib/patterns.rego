@@ -15,9 +15,11 @@ import rego.v1
 # insensitive via the inline (?i) flag accepted by the Go RE2 engine.
 #
 # NOTE: Go RE2 \b treats _ as a word character, same as PCRE. The SSN pattern
-# uses \b here because the Rego evaluator is detection-only (no hard-block):
-# a false-negative on ``employee_123-45-6789`` is reported by the Python
-# MCP gateway's hard-block path, which uses (?<![A-Za-z0-9]) lookaround.
+# uses \b here because RE2 does not support lookaround assertions — the
+# equivalent ``(?<![A-Za-z0-9])`` anchor used by the Python MCP gateway
+# is not expressible in this engine. A false-negative on
+# ``employee_123-45-6789`` is acceptable here because the Python gateway's
+# hard-block path (which uses lookaround) also evaluates the same content.
 # The bounded-token credential patterns in the Python, C#, TypeScript, and
 # Rust SDKs must NOT use \b — they use (?<![A-Za-z0-9]) / (?![A-Za-z0-9])
 # lookaround instead (issue #3933).

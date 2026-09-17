@@ -14,8 +14,10 @@ RAW_SECRETS = (
     "person@example.test",
     "sk-1234567890abcdefghijkl",
     # Underscore-glued form: a secret annotated _old must be redacted too
-    # (regression for issue #3933).
-    "AKIAIOSFODNN7EXAMPLE",
+    # (regression for issue #3933). The fixture in test_pii_redaction.py
+    # feeds this value through MuteAgent.scrub_text so the assertion is
+    # exercised — do not add values here without a corresponding fixture.
+    "AKIAIOSFODNN7EXAMPLE_old",
 )
 
 

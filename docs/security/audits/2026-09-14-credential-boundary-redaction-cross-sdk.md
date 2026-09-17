@@ -27,26 +27,24 @@ Concrete shapes that were missed:
   `svc_AIzaXXXX`
 - Both: `old_AKIAIOSFODNN7EXAMPLE_new`
 
-The root cause in C# and TypeScript was `_` included in the lookaround
-exclusion set (`(?<![A-Za-z0-9_])` / `(?![A-Za-z0-9_])`) for GitHub and
-OpenAI tokens, and `\b` word boundaries (which treat `_` as a word character
-in all regex engines) for AWS and Google tokens. In Rust the same logic was
-expressed procedurally via `is_left_boundary_char` / `is_right_boundary_char`
-methods that included `_` in the rejection set. In Python the left anchor was
-already correct (`(?<![A-Za-z0-9])`), but the right anchor used `\b` for AWS,
-Google, OpenAI, and Stripe tokens, and the GitHub lookahead still included `_`.
+### Per-SDK root cause and fix
 
-The `SlackToken` pattern in all four SDKs was already correct and served as
-the reference for the fix: its lookaround excludes only characters that form
-part of the token's own value class (`-` and alphanumerics), not separators
-like `_`.
+| SDK | Left anchor defect | Right anchor defect | Fix applied |
+|-----|-------------------|-------------------|-------------|
+| C# | `_` in lookaround exclusion set for GitHub/OpenAI | `\b` for AWS/Google (treats `_` as word char) | Alphanumeric-only `(?<![A-Za-z0-9])` / `(?![A-Za-z0-9])` lookaround. Google tail uses strict superset `(?:(?![A-Za-z0-9])|(?<=-))` to preserve the old `\b` shape for keys ending in `-`. |
+| TypeScript | Same as C# (copy-pasted patterns) | Same as C# | Same fix as C#. |
+| Python | Left anchor was already correct (`(?<![A-Za-z0-9])`) | `\b` for AWS, Google, Stripe; GitHub lookahead included `_` | Right anchor migrated to `(?![A-Za-z0-9])`. Google tail already had strict superset anchor. |
+| Rust | `is_left_boundary_char` included `_` for GitHub | `is_right_boundary_char` returned `false` for all non-Slack kinds, so right boundary was never enforced | `is_left_boundary_char` now rejects only ASCII alphanumerics. `is_right_boundary_char` now rejects ASCII alphanumerics for all kinds (plus `-` for Slack). |
 
-### Fix applied
+### OpenAI left-edge widening (C# and TypeScript only)
 
-All four patterns in all four SDKs now use `(?<![A-Za-z0-9])` on the left
-edge and `(?![A-Za-z0-9])` on the right edge. In Rust, `is_left_boundary_char`
-and `is_right_boundary_char` now return `true` only for ASCII alphanumerics
-(plus `-` for Slack, whose value class includes it).
+The C# and TypeScript OpenAI patterns previously used `(?<![A-Za-z0-9_-])`
+which excluded both `_` and `-` from the left boundary. The fix removed both,
+aligning with the Python SDK which has always used `(?<![A-Za-z0-9])`. This
+means kebab identifiers like `my-sk-aaaa…` are now matched in C# and TypeScript
+where they were previously skipped. This is intentional: a real secret preceded
+by a `-` separator (e.g. `env-sk-…`) must be detected, and the Python SDK has
+accepted this trade-off since its initial implementation.
 
 Additionally, the `content_scanner.py` SSN pattern in `agent-rag-governance`
 was updated from `\b\d{3}-\d{2}-\d{4}\b` (dash-only, `\b`-anchored) to
@@ -62,10 +60,10 @@ logic in detection patterns.
 
 | Dimension | Direction |
 |---|---|
-| Right-edge detection | **Strengthened.** A secret followed by `_old`, `_deprecated`, `_rotated`, or any `_`-prefixed suffix is now detected and redacted in all four SDKs. Previously it passed through silently. |
-| Left-edge detection | **Strengthened.** A secret preceded by `session_`, `env_`, `svc_`, or any `_`-suffixed prefix is now detected and redacted. The Python left anchor was already correct; C#, TypeScript, and Rust are now aligned. |
-| False-positive surface | **Unchanged.** A token prefix embedded inside a contiguous alphanumeric word (e.g. `fooAKIA…`) is still correctly rejected. The `(?<![A-Za-z0-9])` anchor blocks this case identically to the old `_`-including anchor. |
-| Cross-SDK consistency | **Strengthened.** All four SDKs now use the same boundary semantics: alphanumeric-only lookaround. Previously each SDK had a different combination of `\b`, `_`-inclusive lookaround, and procedural boundary checks. |
+| Right-edge detection | **Strengthened** in C#, TypeScript, and Python. Rust right boundary was previously unenforced for non-Slack kinds; now enforced. |
+| Left-edge detection | **Strengthened** in C#, TypeScript, and Rust. Python left anchor was already correct. |
+| False-positive surface | **Widened slightly** for OpenAI in C# and TypeScript: kebab identifiers like `my-sk-…` are now matched (aligned with Python). Unchanged for all other patterns. |
+| Cross-SDK consistency | **Improved.** All four SDKs now use alphanumeric-only left boundary. Right boundary is now enforced in Rust (previously absent for non-Slack). |
 | SSN detector parity | **Strengthened.** `content_scanner.py` now matches the same separator forms as `credential_redactor.py`, closing the detection-disagreement gap described in #3815. |
 | Log and audit exposure | **Unchanged.** No raw secret values are exposed in any new code path. |
 
@@ -79,17 +77,21 @@ logic in detection patterns.
 ## Test coverage
 
 - **C# `McpCredentialRedactorTests.cs`**: right-edge, left-edge, both-edges,
-  multi-credential, still-rejects-alphanumeric, and SlackToken-unchanged
-  tests for all four affected patterns.
+  multi-credential, still-rejects-alphanumeric, SlackToken-unchanged, and
+  Google-key-ending-in-hyphen tests for all four affected patterns.
 - **C# `McpResponseSanitizerTests.cs`**: end-to-end pipeline tests verifying
-  glued credentials are caught by `ScanText` (AWS, GitHub, Google, OpenAI),
-  including combined-threat scenarios.
+  glued credentials are caught by `ScanText`.
 - **TypeScript `policy-audit.test.ts`**: boundary tests for GitHub, AWS,
   Google, and OpenAI tokens through the `AuditLogger.sanitizeValue` pipeline.
 - **Rust `redactor.rs` (inline tests)**: left-edge, right-edge, both-edges,
-  multi-credential, and still-rejects-alphanumeric tests for all four patterns.
+  multi-credential, and still-rejects-alphanumeric tests; updated
+  `prefix_ghp_` test to assert detection (behaviour change from bug fix).
 - **Python `test_credential_redactor.py`**: right-edge `_old` tests for
   GitHub, AWS, Google, OpenAI, and Stripe; multi-credential single-pass;
   false-positive guard; trailing-bare-underscore for GitHub.
 - **Python `test_content_scanner.py`**: SSN dash, space, dot separator tests;
   underscore-glued SSN; bare-nine-digit rejection.
+- **Source-level regression guard** (`test_regression_credential_boundary.py`):
+  scans all four SDK source files for `\b` near bounded-token patterns and
+  for `_` inside lookaround character classes. The guard regex covers both
+  lookbehind (`(?<!`) and lookahead (`(?!`) forms.

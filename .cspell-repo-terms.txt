@@ -101,6 +101,7 @@ Hotfixes
 Hyperlight
 IATP
 IGNORECASE
+ISSN
 IPFS
 Initialise
 Jaccard
@@ -337,6 +338,7 @@ concurren
 configmap
 confirmer
 confusables
+Confessn
 connectedservicename
 containerapps
 containerd
@@ -846,6 +848,7 @@ slugification
 smol
 snupkg
 socat
+socsec
 spacy
 spanid
 specversion
@@ -902,7 +905,9 @@ tzdata
 ufeff
 unaliased
 uncallable
+uncued
 unconfigured
+undelimited
 unicodedata
 uninspectable
 unioned

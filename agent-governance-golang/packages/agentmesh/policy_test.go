@@ -801,17 +801,12 @@ func TestNewPolicyEngine_DoesNotMutateInput(t *testing.T) {
 	}
 }
 
-func TestLoadFromYAML_MisspelledDenyScopeBeatsGlobalAllow(t *testing.T) {
+func TestLoadFromYAML_MisspelledScopeIsCorrectedToAgent(t *testing.T) {
 	dir := t.TempDir()
 	yamlContent := `rules:
   - action: "data.export"
     effect: "deny"
     scope: "organisation"
-    priority: 100
-  - action: "data.export"
-    effect: "allow"
-    scope: "global"
-    priority: 50
 `
 	path := filepath.Join(dir, "policy.yaml")
 	if err := os.WriteFile(path, []byte(yamlContent), 0644); err != nil {
@@ -823,22 +818,23 @@ func TestLoadFromYAML_MisspelledDenyScopeBeatsGlobalAllow(t *testing.T) {
 		t.Fatalf("LoadFromYAML: %v", err)
 	}
 
-	// Under most_specific_wins the misspelled-scope deny (corrected to
-	// agent) must beat the global allow.  Under first-match the deny is
-	// listed first, so it also wins.  Either way the result must be deny.
-	d := pe.Evaluate("data.export", nil)
-	if d != Deny {
-		t.Errorf("LoadFromYAML misspelled deny: got %q, want deny", d)
+	// validateAndCorrectRules must have corrected "organisation" -> "agent".
+	pe.mu.RLock()
+	defer pe.mu.RUnlock()
+	if len(pe.rules) != 1 {
+		t.Fatalf("expected 1 rule, got %d", len(pe.rules))
+	}
+	if pe.rules[0].Scope != "agent" {
+		t.Errorf("LoadFromYAML stored scope = %q, want \"agent\"", pe.rules[0].Scope)
 	}
 }
 
-func TestMergeFromYAML_MisspelledDenyScopeBeatsGlobalAllow(t *testing.T) {
+func TestMergeFromYAML_MisspelledScopeIsCorrectedToAgent(t *testing.T) {
 	dir := t.TempDir()
 	yamlContent := `rules:
   - action: "data.export"
     effect: "deny"
     scope: "organisation"
-    priority: 100
 `
 	path := filepath.Join(dir, "deny.yaml")
 	if err := os.WriteFile(path, []byte(yamlContent), 0644); err != nil {
@@ -852,8 +848,13 @@ func TestMergeFromYAML_MisspelledDenyScopeBeatsGlobalAllow(t *testing.T) {
 		t.Fatalf("MergeFromYAML: %v", err)
 	}
 
-	d := pe.Evaluate("data.export", nil)
-	if d != Deny {
-		t.Errorf("MergeFromYAML misspelled deny: got %q, want deny", d)
+	// The first rule is the original global allow, the merged rule is second.
+	pe.mu.RLock()
+	defer pe.mu.RUnlock()
+	if len(pe.rules) != 2 {
+		t.Fatalf("expected 2 rules, got %d", len(pe.rules))
+	}
+	if pe.rules[1].Scope != "agent" {
+		t.Errorf("MergeFromYAML stored scope = %q, want \"agent\"", pe.rules[1].Scope)
 	}
 }

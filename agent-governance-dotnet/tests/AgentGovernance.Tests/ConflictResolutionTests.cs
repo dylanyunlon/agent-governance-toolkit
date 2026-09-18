@@ -157,13 +157,15 @@ public class ConflictResolutionTests
         // parsed as Agent by ParseScope (fail-closed).  Under MostSpecificWins
         // it must beat a correctly-scoped global allow.
         var unrecognisedScope = PolicyConflictResolver.ParseScope("organisation");
+        // allow priority 100 > deny priority 50: deny can only win if its
+        // scope (Agent, from the fail-closed fallback) outranks Global.
         var candidates = new List<CandidateDecision>
         {
-            new(MakeRule("global-allow", PolicyAction.Allow, 50),
-                PolicyDecision.FromRule(MakeRule("global-allow", PolicyAction.Allow, 50)),
+            new(MakeRule("global-allow", PolicyAction.Allow, 100),
+                PolicyDecision.FromRule(MakeRule("global-allow", PolicyAction.Allow, 100)),
                 PolicyScope.Global),
-            new(MakeRule("corrupted-deny", PolicyAction.Deny, 100),
-                PolicyDecision.FromRule(MakeRule("corrupted-deny", PolicyAction.Deny, 100)),
+            new(MakeRule("corrupted-deny", PolicyAction.Deny, 50),
+                PolicyDecision.FromRule(MakeRule("corrupted-deny", PolicyAction.Deny, 50)),
                 unrecognisedScope)
         };
 

@@ -357,20 +357,22 @@ def test_misspelled_scope_deny_causes_degraded_and_deny(generation_client, tmp_p
     deny_yaml = (
         "name: block-export\n"
         "scope: organisation\n"  # deliberate typo
+        "agents: ['*']\n"
         "rules:\n"
         "  - name: block\n"
-        "    action: data.export\n"
-        "    effect: deny\n"
-        "    priority: 200\n"
+        "    condition: \"action == 'data.export'\"\n"
+        "    action: deny\n"
+        "    priority: 50\n"
     )
     allow_yaml = (
         "name: allow-all\n"
         "scope: global\n"
+        "agents: ['*']\n"
         "rules:\n"
         "  - name: permit\n"
-        "    action: '*'\n"
-        "    effect: allow\n"
-        "    priority: 10\n"
+        "    condition: \"action == 'data.export'\"\n"
+        "    action: allow\n"
+        "    priority: 100\n"
     )
     (tmp_path / "deny.yaml").write_text(deny_yaml, encoding="utf-8")
     (tmp_path / "allow.yaml").write_text(allow_yaml, encoding="utf-8")

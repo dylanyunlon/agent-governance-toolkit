@@ -148,7 +148,7 @@ public static class PolicyConflictResolver
 
     /// <summary>
     /// Parses a <see cref="PolicyScope"/> from a string value.
-    /// Returns <see cref="PolicyScope.Global"/> for unrecognised values
+    /// Returns <see cref="PolicyScope.Agent"/> for unrecognised values (fail-closed, #3536)
     /// but logs a warning so the misconfiguration is observable.
     /// </summary>
     /// <param name="value">The scope string (e.g., "global", "tenant", "organization", "agent").</param>

@@ -751,11 +751,14 @@ rules:
       name: 'global-allow',
       scope: PolicyScope.Global,
       agents: ['*'],
-      rules: [{ name: 'permit', ruleAction: 'allow' }],
+      rules: [{ name: 'permit', ruleAction: 'allow', priority: 100 }],
       default_action: 'allow',
     });
     const result = engine.evaluatePolicy('did:test', {});
-    // Corrupted-scope deny must beat global allow (fail-closed)
+    // Deny has no explicit priority (0), allow has priority 100.
+    // Under MostSpecificWins, deny can only win if its scope (Agent,
+    // from the fail-closed fallback) outranks Global.  If the fallback
+    // were Global, allow would win on priority.
     expect(result.allowed).toBe(false);
     expect(result.matchedRule).toBe('block');
   });

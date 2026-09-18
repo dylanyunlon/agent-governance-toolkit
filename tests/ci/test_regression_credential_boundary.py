@@ -237,6 +237,7 @@ def test_rust_left_boundary_non_slack_rejects_only_alphanumeric() -> None:
     text = _RUST_REDACTOR.read_text(encoding="utf-8")
     body, start_line = _extract_fn_body(text, "fn is_left_boundary_char")
     arms = _split_match_arms(body)
+    assert start_line > 0 and arms, "is_left_boundary_char not found in redactor.rs"
     for kind, arm_body in arms:
         if "SlackToken" in kind:
             continue
@@ -264,6 +265,7 @@ def test_rust_right_boundary_non_slack_rejects_alphanumeric() -> None:
     text = _RUST_REDACTOR.read_text(encoding="utf-8")
     body, start_line = _extract_fn_body(text, "fn is_right_boundary_char")
     arms = _split_match_arms(body)
+    assert start_line > 0 and arms, "is_right_boundary_char not found in redactor.rs"
     for kind, arm_body in arms:
         if "SlackToken" in kind:
             continue

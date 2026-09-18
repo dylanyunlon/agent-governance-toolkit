@@ -29,9 +29,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`agent-governance-toolkit-core` and `[full]` no longer require `agt-policies`
   as a base dependency.** `agt-policies>=5.1.0` (requiring an unpublished
   `agent-control-specification>=0.4.0b0`) had become a base dependency, blocking
-  `pip install`. Moved `agt-policies` to an opt-in `migrate` extra — existing
-  `agt migrate` users now need `pip install agent-governance-toolkit-core[migrate]`
-  — and made `agent-control-specification>=0.4.0b0,<0.5.0` a direct base
+  `pip install`. Moved `agt-policies` to an opt-in `migrate` extra, existing
+  `agt migrate` users now need `pip install agent-governance-toolkit-core[migrate]`,
+  and made `agent-control-specification>=0.4.0b0,<0.5.0` a direct base
   dependency instead, matching the version `agent_os` actually requires. A
   resolvable PyPI install of `agent-governance-toolkit-core` still depends on
   `agent-control-specification` 0.4.0b0 and `agt-policies` 5.1.0 being

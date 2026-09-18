@@ -712,7 +712,7 @@ rules:
 
   it('evaluatePolicy does not warn when scope is omitted', () => {
     const engine = new PolicyEngine();
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     engine.loadPolicy({
       apiVersion: 'governance.toolkit/v1',
       name: 'no-scope',
@@ -728,7 +728,10 @@ rules:
   });
 
   it('mutated-scope deny beats global allow under MostSpecificWins', () => {
-    const engine = new PolicyEngine({ conflictStrategy: 'most_specific_wins' });
+    const engine = new PolicyEngine(
+      undefined,
+      ConflictResolutionStrategy.MostSpecificWins,
+    );
     // Load a valid deny policy, then simulate post-registration corruption
     const denyPolicy = {
       apiVersion: 'governance.toolkit/v1' as const,
@@ -739,6 +742,10 @@ rules:
       default_action: 'deny' as const,
     };
     engine.loadPolicy(denyPolicy);
+    // Simulate post-registration scope corruption (e.g. serialization round-trip
+    // that introduces a typo).  The runtime fallback must rank the corrupted
+    // scope at Agent (fail-closed) so the deny is never demoted below global.
+    (denyPolicy as any).scope = 'typo';
     engine.loadPolicy({
       apiVersion: 'governance.toolkit/v1',
       name: 'global-allow',
@@ -748,8 +755,9 @@ rules:
       default_action: 'allow',
     });
     const result = engine.evaluatePolicy('did:test', {});
-    // Agent-scoped deny must beat global allow
+    // Corrupted-scope deny must beat global allow (fail-closed)
     expect(result.allowed).toBe(false);
+    expect(result.matchedRule).toBe('block');
   });
 });
 

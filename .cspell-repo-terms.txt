@@ -391,6 +391,7 @@ bytecount
 caas
 cands
 canonicality
+capitalised
 caplog
 capsys
 carloshvp
@@ -804,6 +805,7 @@ oorandom
 opencode
 openpolicyagent
 openshell
+organisation
 organisational
 organisations
 oserror

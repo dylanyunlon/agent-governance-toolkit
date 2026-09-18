@@ -82,16 +82,7 @@ type PolicyEngine struct {
 // fail-closed) rather than silently demoting to "global" (#3536).
 // The input slice is not mutated; a defensive copy is made.
 func NewPolicyEngine(rules []PolicyRule) *PolicyEngine {
-	validated := make([]PolicyRule, len(rules))
-	copy(validated, rules)
-	for i := range validated {
-		if validated[i].Scope != "" {
-			if err := ValidateScope(validated[i].Scope); err != nil {
-				log.Printf("[WARN] rule %d (%q): %v -- ranking at agent (fail-closed)", i, validated[i].Action, err)
-				validated[i].Scope = "agent"
-			}
-		}
-	}
+	validated := validateAndCorrectRules(rules)
 	return &PolicyEngine{
 		rules:      validated,
 		rateLimits: make(map[string]*rateLimitState),
@@ -237,11 +228,31 @@ func (pe *PolicyEngine) checkRateLimit(rule PolicyRule, context map[string]inter
 	return Allow
 }
 
+// validateAndCorrectRules copies the input slice and corrects any invalid
+// Scope to "agent" (fail-closed, max specificity) — the same behaviour as
+// NewPolicyEngine.  The input slice is never mutated.
+func validateAndCorrectRules(rules []PolicyRule) []PolicyRule {
+	validated := make([]PolicyRule, len(rules))
+	copy(validated, rules)
+	for i := range validated {
+		if validated[i].Scope != "" {
+			if err := ValidateScope(validated[i].Scope); err != nil {
+				log.Printf("[WARN] rule %d (%q): %v -- ranking at agent (fail-closed)", i, validated[i].Action, err)
+				validated[i].Scope = "agent"
+			}
+		}
+	}
+	return validated
+}
+
 // LoadFromYAML replaces the engine's rule set with the rules from a YAML
 // file. Existing rules are discarded on success; on parse or I/O error the
 // previous rule set is left intact. This matches the natural semantics of a
 // "load" verb and prevents the rule set from doubling when the same file is
 // re-read (e.g. on config reload).
+//
+// Rules with an invalid Scope are corrected to "agent" (fail-closed, #3536),
+// matching NewPolicyEngine behaviour.
 //
 // To extend the rule set without replacing it, use MergeFromYAML.
 func (pe *PolicyEngine) LoadFromYAML(path string) error {
@@ -250,24 +261,28 @@ func (pe *PolicyEngine) LoadFromYAML(path string) error {
 		return err
 	}
 
+	validated := validateAndCorrectRules(rules)
 	pe.mu.Lock()
 	defer pe.mu.Unlock()
-	pe.rules = rules
+	pe.rules = validated
 	return nil
 }
 
 // MergeFromYAML appends rules from a YAML file to the engine's existing rule
 // set. Use this when composing rules from multiple files; use LoadFromYAML
 // when reloading a single canonical rule set.
+//
+// Rules with an invalid Scope are corrected to "agent" (fail-closed, #3536).
 func (pe *PolicyEngine) MergeFromYAML(path string) error {
 	rules, err := readPolicyRulesFromYAML(path)
 	if err != nil {
 		return err
 	}
 
+	validated := validateAndCorrectRules(rules)
 	pe.mu.Lock()
 	defer pe.mu.Unlock()
-	pe.rules = append(pe.rules, rules...)
+	pe.rules = append(pe.rules, validated...)
 	return nil
 }
 

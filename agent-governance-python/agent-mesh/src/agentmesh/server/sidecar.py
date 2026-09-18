@@ -127,14 +127,13 @@ def create_sidecar_app() -> FastAPI:
         }
         engine, generation = _policy_state
 
-        # Fail-closed (#3536): if the load generation is rejected (one or
-        # more policy files failed to parse), deny all actions so a broken
-        # deny policy is not silently bypassed.
-        if generation.policy_set_status == "rejected":
+        # Fail-closed (#3536): if any policy file failed to load, deny all
+        # actions so a broken deny policy is not silently bypassed.
+        if generation.policies_failed > 0:
             return EvaluateResponse(
                 decision="deny",
                 matched_rule=None,
-                reason=f"Policy set rejected: {generation.policies_failed} file(s) failed to load",
+                reason=f"Policy set degraded: {generation.policies_failed} file(s) failed to load",
                 policy_name=None,
                 policy_set_id=generation.policy_set_id,
                 policy_set_status=generation.policy_set_status,
@@ -282,8 +281,9 @@ def _load_policies() -> PolicyLoadGeneration:
     failed = sum(entry.status == "failed" for entry in files)
 
     # Fail-closed (#3536 review): when files fail, publish the generation
-    # as 'rejected' so evaluate_policy can deny.  Do NOT raise -- that
-    # would break #3909's generation model and its existing tests.
+    # as 'degraded' so evaluate_policy can deny based on policies_failed.
+    # Do NOT raise or use 'rejected' -- #3909's generation model and its
+    # existing tests expect 'degraded' for file-level parse failures.
     if failed:
         failed_names = [e.name for e in files if e.status == "failed"]
         logger.error(
@@ -292,9 +292,7 @@ def _load_policies() -> PolicyLoadGeneration:
         )
 
     policy_set_status = "complete"
-    if failed:
-        policy_set_status = "rejected"
-    elif directory_status == "unavailable":
+    if failed or directory_status == "unavailable":
         policy_set_status = "degraded"
 
     generation = PolicyLoadGeneration(

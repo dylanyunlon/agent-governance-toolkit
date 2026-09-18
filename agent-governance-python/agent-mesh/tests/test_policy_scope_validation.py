@@ -28,7 +28,6 @@ from agentmesh.governance.policy import (
     validate_policy_schema,
 )
 
-
 # ── Construction-time rejection ──────────────────────────────
 
 

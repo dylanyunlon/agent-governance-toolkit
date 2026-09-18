@@ -344,3 +344,45 @@ def test_evaluation_keeps_its_generation_when_reload_publishes(
     assert next_result["decision"] == "allow", next_result
     assert next_result["matched_rule"] == "permit"
     assert next_result["policy_set_id"] == sidecar._policy_state[1].policy_set_id
+
+
+def test_misspelled_scope_deny_causes_degraded_and_deny(generation_client, tmp_path):
+    """Regression test for #3536: a deny policy with scope: 'organisation'
+    (British spelling) must not silently flip to allow.
+
+    The misspelled scope causes a validation error at load time, which fails
+    the file, produces a 'degraded' generation, and evaluate returns deny
+    because policies_failed > 0.
+    """
+    deny_yaml = (
+        "name: block-export\n"
+        "scope: organisation\n"  # deliberate typo
+        "rules:\n"
+        "  - name: block\n"
+        "    action: data.export\n"
+        "    effect: deny\n"
+        "    priority: 200\n"
+    )
+    allow_yaml = (
+        "name: allow-all\n"
+        "scope: global\n"
+        "rules:\n"
+        "  - name: permit\n"
+        "    action: '*'\n"
+        "    effect: allow\n"
+        "    priority: 10\n"
+    )
+    (tmp_path / "deny.yaml").write_text(deny_yaml, encoding="utf-8")
+    (tmp_path / "allow.yaml").write_text(allow_yaml, encoding="utf-8")
+
+    reload = generation_client.post("/api/v1/policy/reload").json()
+    # The misspelled-scope file fails validation -> degraded, not complete.
+    assert reload["policies_failed"] >= 1, reload
+    assert reload["policy_set_status"] == "degraded"
+
+    decision = generation_client.post(
+        "/api/v1/policy/evaluate",
+        json={"agent_did": "did:mesh:test", "action": "data.export"},
+    ).json()
+    # Fail-closed: must NOT return allow when a policy file failed to load.
+    assert decision["decision"] == "deny", decision

@@ -149,4 +149,28 @@ public class ConflictResolutionTests
         // so a corrupted deny cannot lose to a global allow (#3536).
         Assert.Equal(PolicyScope.Agent, PolicyConflictResolver.ParseScope("unknown"));
     }
+
+    [Fact]
+    public void MostSpecificWins_UnrecognisedScopeDenyBeatsGlobalAllow()
+    {
+        // A deny rule whose scope was corrupted (e.g. "organisation") is
+        // parsed as Agent by ParseScope (fail-closed).  Under MostSpecificWins
+        // it must beat a correctly-scoped global allow.
+        var unrecognisedScope = PolicyConflictResolver.ParseScope("organisation");
+        var candidates = new List<CandidateDecision>
+        {
+            new(MakeRule("global-allow", PolicyAction.Allow, 50),
+                PolicyDecision.FromRule(MakeRule("global-allow", PolicyAction.Allow, 50)),
+                PolicyScope.Global),
+            new(MakeRule("corrupted-deny", PolicyAction.Deny, 100),
+                PolicyDecision.FromRule(MakeRule("corrupted-deny", PolicyAction.Deny, 100)),
+                unrecognisedScope)
+        };
+
+        var result = PolicyConflictResolver.Resolve(candidates, ConflictResolutionStrategy.MostSpecificWins);
+
+        Assert.NotNull(result);
+        Assert.False(result!.Allowed);
+        Assert.Equal("corrupted-deny", result.MatchedRule);
+    }
 }

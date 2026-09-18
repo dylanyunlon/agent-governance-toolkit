@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 package agentmesh
 
 import (
@@ -784,5 +787,73 @@ func TestOrganizationSpecificity(t *testing.T) {
 	}
 	if orgSpec >= agentSpec {
 		t.Errorf("org specificity %d >= agent specificity %d", orgSpec, agentSpec)
+	}
+}
+
+func TestNewPolicyEngine_DoesNotMutateInput(t *testing.T) {
+	rules := []PolicyRule{
+		{Action: "data.read", Effect: Deny, Scope: "organisation"},
+	}
+	NewPolicyEngine(rules)
+	// The caller's slice must be untouched.
+	if rules[0].Scope != "organisation" {
+		t.Errorf("input slice mutated: scope = %q, want \"organisation\"", rules[0].Scope)
+	}
+}
+
+func TestLoadFromYAML_MisspelledDenyScopeBeatsGlobalAllow(t *testing.T) {
+	dir := t.TempDir()
+	yamlContent := `rules:
+  - action: "data.export"
+    effect: "deny"
+    scope: "organisation"
+    priority: 100
+  - action: "data.export"
+    effect: "allow"
+    scope: "global"
+    priority: 50
+`
+	path := filepath.Join(dir, "policy.yaml")
+	if err := os.WriteFile(path, []byte(yamlContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	pe := NewPolicyEngine(nil)
+	if err := pe.LoadFromYAML(path); err != nil {
+		t.Fatalf("LoadFromYAML: %v", err)
+	}
+
+	// Under most_specific_wins the misspelled-scope deny (corrected to
+	// agent) must beat the global allow.  Under first-match the deny is
+	// listed first, so it also wins.  Either way the result must be deny.
+	d := pe.Evaluate("data.export", nil)
+	if d != Deny {
+		t.Errorf("LoadFromYAML misspelled deny: got %q, want deny", d)
+	}
+}
+
+func TestMergeFromYAML_MisspelledDenyScopeBeatsGlobalAllow(t *testing.T) {
+	dir := t.TempDir()
+	yamlContent := `rules:
+  - action: "data.export"
+    effect: "deny"
+    scope: "organisation"
+    priority: 100
+`
+	path := filepath.Join(dir, "deny.yaml")
+	if err := os.WriteFile(path, []byte(yamlContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	pe := NewPolicyEngine([]PolicyRule{
+		{Action: "data.export", Effect: Allow, Scope: Global, Priority: 50},
+	})
+	if err := pe.MergeFromYAML(path); err != nil {
+		t.Fatalf("MergeFromYAML: %v", err)
+	}
+
+	d := pe.Evaluate("data.export", nil)
+	if d != Deny {
+		t.Errorf("MergeFromYAML misspelled deny: got %q, want deny", d)
 	}
 }

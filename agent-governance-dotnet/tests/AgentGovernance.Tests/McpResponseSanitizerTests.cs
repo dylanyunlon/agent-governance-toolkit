@@ -95,5 +95,4 @@ public class McpResponseSanitizerTests
         Assert.Empty(result.Findings);
         Assert.Equal("This is a perfectly normal response.", result.Sanitized);
     }
-
 }

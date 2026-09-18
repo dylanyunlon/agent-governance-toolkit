@@ -57,9 +57,9 @@ describe('evaluatePolicy', () => {
 });
 
 describe('AuditLogger', () => {
-  const fakeOpenAiToken = `sk-FAKEFORTESTING${'x'.repeat(20)}`;
-  const fakeAwsAccessKey = `AKIA${'A'.repeat(16)}`;
-  const fakeGoogleApiKey = `AIza${'A'.repeat(35)}`;
+  const openAiTokenFixture = `sk-FAKEFORTESTING${'x'.repeat(20)}`;
+  const awsKeyFixture = `AKIA${'A'.repeat(16)}`;
+  const googleKeyFixture = `AIza${'A'.repeat(35)}`;
 
   it('includes mitigates in CloudEvents data only when present', async () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'mcp-proxy-audit-'));
@@ -109,11 +109,11 @@ describe('AuditLogger', () => {
       decision: 'allow',
       arguments: {
         embeddedToken: 'github_pat_FAKE_FOR_TESTING_0000000000000000000000',
-        openAiToken: fakeOpenAiToken,
+        openAiToken: openAiTokenFixture,
         slackToken: 'xoxb-FAKE-FOR-TESTING-0000000000',
         nested: {
           note: '-----BEGIN DSA PRIVATE KEY-----\nZmFrZQ==\n-----END DSA PRIVATE KEY-----',
-          cloud: [fakeAwsAccessKey, fakeGoogleApiKey],
+          cloud: [awsKeyFixture, googleKeyFixture],
         },
       },
     });
@@ -215,7 +215,7 @@ describe('AuditLogger', () => {
       tool: 'echo',
       decision: 'allow',
       arguments: {
-        config: `env_${fakeAwsAccessKey}_old`,
+        config: `env_${awsKeyFixture}_old`,
       },
     });
 
@@ -246,7 +246,7 @@ describe('AuditLogger', () => {
       tool: 'echo',
       decision: 'allow',
       arguments: {
-        config: `svc_${fakeGoogleApiKey}`,
+        config: `svc_${googleKeyFixture}`,
       },
     });
 
@@ -277,7 +277,7 @@ describe('AuditLogger', () => {
       tool: 'echo',
       decision: 'allow',
       arguments: {
-        config: `session_${fakeOpenAiToken}_bak`,
+        config: `session_${openAiTokenFixture}_bak`,
       },
     });
 
@@ -342,7 +342,7 @@ describe('AuditLogger', () => {
       tool: 'echo',
       decision: 'allow',
       arguments: {
-        config: `my-${fakeOpenAiToken}`,
+        config: `my-${openAiTokenFixture}`,
       },
     });
 

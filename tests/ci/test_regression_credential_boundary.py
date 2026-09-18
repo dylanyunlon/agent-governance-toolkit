@@ -4,15 +4,15 @@
 """Regression test for issue #3933: credential boundary anchors.
 
 The credential redaction patterns for GitHub, OpenAI, AWS, and Google tokens
-in all four SDKs (.NET, TypeScript, Rust, Python) previously included ``_``
-in their boundary-anchor exclusion sets, so a secret glued to ``_`` was
+in three SDKs (TypeScript, Rust, Python; C# is in #3934) previously included
+``_`` in their boundary-anchor exclusion sets, so a secret glued to ``_`` was
 silently missed. This test inspects the source files themselves to verify the
 patterns use alphanumeric-only anchors (``[A-Za-z0-9]`` without ``_``) and
 that no ``\\b`` word boundary is used on a bounded-token pattern.
 
 This is a **source-level** guard. The per-SDK unit tests verify runtime
-behaviour; this test catches an accidental revert in any SDK without
-building that SDK's toolchain.
+behaviour; this test catches an accidental revert without building that
+SDK's toolchain.
 """
 
 from __future__ import annotations
@@ -175,6 +175,57 @@ def test_content_scanner_ssn_accepts_space_and_dot_separators() -> None:
 # above cannot inspect these, so we check them separately.
 # ---------------------------------------------------------------
 
+def _extract_fn_body(source: str, fn_name: str) -> tuple[str, int]:
+    """Extract a Rust function body and its starting line number."""
+    lines = source.splitlines()
+    start = -1
+    depth = 0
+    body_lines: list[str] = []
+    for i, line in enumerate(lines):
+        if fn_name in line and start < 0:
+            start = i + 1  # 1-indexed
+            depth = 0
+        if start < 0:
+            continue
+        depth += line.count("{") - line.count("}")
+        body_lines.append(line)
+        if depth <= 0 and len(body_lines) > 1:
+            break
+    return "\n".join(body_lines), start
+
+
+def _split_match_arms(body: str) -> list[tuple[str, str]]:
+    """Split a Rust match body into (kind, arm_body) pairs.
+
+    Handles multi-line block arms ``Kind => { ... }`` by tracking braces.
+    """
+    arms: list[tuple[str, str]] = []
+    current_kind = ""
+    current_body_parts: list[str] = []
+    depth = 0
+    in_arm = False
+    for line in body.splitlines():
+        stripped = line.strip()
+        # Detect arm start: ``SomeKind => ...`` or ``_ => ...``
+        if "=>" in stripped and not in_arm:
+            kind_part = stripped.split("=>")[0].strip().split("::")[-1]
+            current_kind = kind_part
+            current_body_parts = [stripped]
+            # Check if this arm opens a block
+            depth = stripped.count("{") - stripped.count("}")
+            in_arm = depth > 0
+            if not in_arm:
+                arms.append((current_kind, stripped))
+            continue
+        if in_arm:
+            current_body_parts.append(stripped)
+            depth += stripped.count("{") - stripped.count("}")
+            if depth <= 0:
+                arms.append((current_kind, "\n".join(current_body_parts)))
+                in_arm = False
+    return arms
+
+
 def test_rust_left_boundary_non_slack_rejects_only_alphanumeric() -> None:
     """Non-Slack match arms in is_left_boundary_char must reject only
     ASCII alphanumerics.  If an arm for a non-Slack kind includes '_'
@@ -184,27 +235,22 @@ def test_rust_left_boundary_non_slack_rejects_only_alphanumeric() -> None:
         pytest.skip("redactor.rs not found")
 
     text = _RUST_REDACTOR.read_text(encoding="utf-8")
-    in_left = False
-    brace_depth = 0
-    for i, line in enumerate(text.splitlines(), 1):
-        if "fn is_left_boundary_char" in line:
-            in_left = True
-            brace_depth = 0
-        if not in_left:
+    body, start_line = _extract_fn_body(text, "fn is_left_boundary_char")
+    arms = _split_match_arms(body)
+    for kind, arm_body in arms:
+        if "SlackToken" in kind:
             continue
-        brace_depth += line.count("{") - line.count("}")
-        # The function ends when brace depth returns to zero after opening
-        if in_left and brace_depth <= 0 and "{" not in line and "fn " not in line:
-            break
-        # Skip the Slack arm (it correctly blocks '-')
-        if "SlackToken" in line:
-            continue
-        # No non-Slack arm should contain '_' in its match expression
-        if "=> " in line and "'_'" in line:
+        if "'_'" in arm_body:
             pytest.fail(
-                f"redactor.rs:{i}: is_left_boundary_char non-Slack arm "
+                f"redactor.rs: is_left_boundary_char arm for {kind} "
                 f"blocks '_', which would miss underscore-prefixed secrets.\n"
-                f"  {line.strip()}"
+                f"  {arm_body}"
+            )
+        if "'-'" in arm_body and "false" not in arm_body:
+            pytest.fail(
+                f"redactor.rs: is_left_boundary_char arm for {kind} "
+                f"blocks '-', which would miss dash-prefixed secrets.\n"
+                f"  {arm_body}"
             )
 
 
@@ -216,22 +262,22 @@ def test_rust_right_boundary_non_slack_rejects_alphanumeric() -> None:
         pytest.skip("redactor.rs not found")
 
     text = _RUST_REDACTOR.read_text(encoding="utf-8")
-    in_right = False
-    brace_depth = 0
-    for i, line in enumerate(text.splitlines(), 1):
-        if "fn is_right_boundary_char" in line:
-            in_right = True
-            brace_depth = 0
-        if not in_right:
+    body, start_line = _extract_fn_body(text, "fn is_right_boundary_char")
+    arms = _split_match_arms(body)
+    for kind, arm_body in arms:
+        if "SlackToken" in kind:
             continue
-        brace_depth += line.count("{") - line.count("}")
-        # The function ends when brace depth returns to zero after opening
-        if in_right and brace_depth <= 0 and "{" not in line and "fn " not in line:
-            break
-        # The catch-all arm must not be `_ => false`
-        if "_ =>" in line and "false" in line and "is_ascii" not in line:
+        # The catch-all or any non-Slack arm must not unconditionally return false
+        if "false" in arm_body and "is_ascii" not in arm_body and "last_consumed" not in arm_body:
             pytest.fail(
-                f"redactor.rs:{i}: is_right_boundary_char catch-all arm "
-                f"returns false, so right boundary is never enforced "
-                f"for most credential kinds.\n  {line.strip()}"
+                f"redactor.rs: is_right_boundary_char arm for {kind} "
+                f"returns false without checking is_ascii_alphanumeric, "
+                f"so right boundary is never enforced.\n  {arm_body}"
+            )
+        # No non-Slack arm should contain '_'
+        if "'_'" in arm_body:
+            pytest.fail(
+                f"redactor.rs: is_right_boundary_char arm for {kind} "
+                f"blocks '_', which would miss underscore-suffixed secrets.\n"
+                f"  {arm_body}"
             )

@@ -54,7 +54,7 @@ class CredentialRedactor:
     # Both anchors use a ``(?<![A-Za-z0-9])`` lookbehind and a
     # ``(?![A-Za-z0-9])`` lookahead rather than ``\b`` so a secret glued
     # directly to a word character via ``_`` or ``-`` (for example
-    # ``session_sk-...`` or ``AKIAXXXX_old``) is still detected. ``\b``
+    # ``session_sk-...`` or ``AKIA<key>_old``) is still detected. ``\b``
     # treats ``_`` as a word character, so ``_sk-`` has no boundary and the
     # secret would be missed; the explicit lookaround treats ``_`` (and
     # ``-``, ``/``, ``.``, whitespace) as a valid edge while still not

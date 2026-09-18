@@ -275,5 +275,4 @@ public class McpGatewayTests
         Assert.Equal(McpGatewayStatus.Denied, decision.Status);
         Assert.Empty(decision.Findings);
     }
-
 }

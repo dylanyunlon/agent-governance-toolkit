@@ -354,32 +354,44 @@ def test_misspelled_scope_deny_causes_degraded_and_deny(generation_client, tmp_p
     the file, produces a 'degraded' generation, and evaluate returns deny
     because policies_failed > 0.
     """
-    deny_yaml = (
-        "name: block-export\n"
-        "scope: organisation\n"  # deliberate typo
-        "agents: ['*']\n"
-        "rules:\n"
-        "  - name: block\n"
-        "    condition: \"action == 'data.export'\"\n"
-        "    action: deny\n"
-        "    priority: 50\n"
+    import yaml as _yaml
+
+    deny_doc = {
+        "name": "block-export",
+        "scope": "organisation",  # deliberate typo
+        "agents": ["*"],
+        "rules": [
+            {
+                "name": "block",
+                "condition": "action == 'data.export'",
+                "action": "deny",
+                "priority": 50,
+            }
+        ],
+    }
+    allow_doc = {
+        "name": "allow-all",
+        "scope": "global",
+        "agents": ["*"],
+        "rules": [
+            {
+                "name": "permit",
+                "condition": "action == 'data.export'",
+                "action": "allow",
+                "priority": 100,
+            }
+        ],
+    }
+    (tmp_path / "deny.yaml").write_text(
+        _yaml.safe_dump(deny_doc, default_flow_style=False), encoding="utf-8"
     )
-    allow_yaml = (
-        "name: allow-all\n"
-        "scope: global\n"
-        "agents: ['*']\n"
-        "rules:\n"
-        "  - name: permit\n"
-        "    condition: \"action == 'data.export'\"\n"
-        "    action: allow\n"
-        "    priority: 100\n"
+    (tmp_path / "allow.yaml").write_text(
+        _yaml.safe_dump(allow_doc, default_flow_style=False), encoding="utf-8"
     )
-    (tmp_path / "deny.yaml").write_text(deny_yaml, encoding="utf-8")
-    (tmp_path / "allow.yaml").write_text(allow_yaml, encoding="utf-8")
 
     reload = generation_client.post("/api/v1/policy/reload").json()
     # The misspelled-scope file fails validation -> degraded, not complete.
-    assert reload["policies_failed"] >= 1, reload
+    assert reload["policies_failed"] == 1, reload
     assert reload["policy_set_status"] == "degraded"
 
     decision = generation_client.post(
@@ -388,3 +400,5 @@ def test_misspelled_scope_deny_causes_degraded_and_deny(generation_client, tmp_p
     ).json()
     # Fail-closed: must NOT return allow when a policy file failed to load.
     assert decision["decision"] == "deny", decision
+    assert decision["matched_rule"] is None, decision
+    assert "degraded" in decision.get("reason", ""), decision

@@ -14,7 +14,6 @@ verify that:
 """
 
 import logging
-import warnings
 
 import pytest
 

@@ -145,6 +145,8 @@ public class ConflictResolutionTests
         Assert.Equal(PolicyScope.Tenant, PolicyConflictResolver.ParseScope("tenant"));
         Assert.Equal(PolicyScope.Agent, PolicyConflictResolver.ParseScope("agent"));
         Assert.Equal(PolicyScope.Global, PolicyConflictResolver.ParseScope(null));
-        Assert.Equal(PolicyScope.Global, PolicyConflictResolver.ParseScope("unknown"));
+        // Non-null unrecognised scope fails closed at Agent (max specificity)
+        // so a corrupted deny cannot lose to a global allow (#3536).
+        Assert.Equal(PolicyScope.Agent, PolicyConflictResolver.ParseScope("unknown"));
     }
 }

@@ -5,6 +5,7 @@ package agentmesh
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"strings"
 	"sync"
@@ -86,7 +87,7 @@ func NewPolicyEngine(rules []PolicyRule) *PolicyEngine {
 	for i := range validated {
 		if validated[i].Scope != "" {
 			if err := ValidateScope(validated[i].Scope); err != nil {
-				fmt.Fprintf(os.Stderr, "[WARN] rule %d (%q): %v -- ranking at agent (fail-closed)\n", i, validated[i].Action, err)
+				log.Printf("[WARN] rule %d (%q): %v -- ranking at agent (fail-closed)", i, validated[i].Action, err)
 				validated[i].Scope = "agent"
 			}
 		}

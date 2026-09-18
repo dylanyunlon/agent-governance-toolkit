@@ -190,7 +190,7 @@ class EvaluateResponse(BaseModel):
     reason: str = ""
     policy_name: str | None = None
     policy_set_id: str
-    policy_set_status: Literal["complete", "degraded", "not_loaded"]
+    policy_set_status: Literal["complete", "degraded", "rejected", "not_loaded"]
 
 
 class PolicyFileLoad(BaseModel):
@@ -208,7 +208,7 @@ class PolicyLoadGeneration(BaseModel):
 
     model_config = ConfigDict(frozen=True)
     policy_set_id: str
-    policy_set_status: Literal["complete", "degraded", "not_loaded"]
+    policy_set_status: Literal["complete", "degraded", "rejected", "not_loaded"]
     policies_discovered: int
     policies_loaded: int
     policies_failed: int

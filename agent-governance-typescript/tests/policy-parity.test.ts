@@ -695,5 +695,61 @@ rules:
       }),
     ).toThrow(/Invalid policy scope/);
   });
+
+  it('loadPolicy rejects empty-string scope', () => {
+    const engine = new PolicyEngine();
+    expect(() =>
+      engine.loadPolicy({
+        apiVersion: 'governance.toolkit/v1',
+        name: 'empty-scope',
+        scope: '' as PolicyScope,
+        agents: ['*'],
+        rules: [],
+        default_action: 'deny',
+      }),
+    ).toThrow(/Invalid policy scope/);
+  });
+
+  it('evaluatePolicy does not warn when scope is omitted', () => {
+    const engine = new PolicyEngine();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    engine.loadPolicy({
+      apiVersion: 'governance.toolkit/v1',
+      name: 'no-scope',
+      agents: ['*'],
+      rules: [{ name: 'r', ruleAction: 'allow' }],
+      default_action: 'allow',
+    });
+    engine.evaluatePolicy('did:test', {});
+    expect(warnSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining('unrecognised scope'),
+    );
+    warnSpy.mockRestore();
+  });
+
+  it('mutated-scope deny beats global allow under MostSpecificWins', () => {
+    const engine = new PolicyEngine({ conflictStrategy: 'most_specific_wins' });
+    // Load a valid deny policy, then simulate post-registration corruption
+    const denyPolicy = {
+      apiVersion: 'governance.toolkit/v1' as const,
+      name: 'agent-deny',
+      scope: PolicyScope.Agent,
+      agents: ['*'],
+      rules: [{ name: 'block', ruleAction: 'deny' as const }],
+      default_action: 'deny' as const,
+    };
+    engine.loadPolicy(denyPolicy);
+    engine.loadPolicy({
+      apiVersion: 'governance.toolkit/v1',
+      name: 'global-allow',
+      scope: PolicyScope.Global,
+      agents: ['*'],
+      rules: [{ name: 'permit', ruleAction: 'allow' }],
+      default_action: 'allow',
+    });
+    const result = engine.evaluatePolicy('did:test', {});
+    // Agent-scoped deny must beat global allow
+    expect(result.allowed).toBe(false);
+  });
 });
 

@@ -92,8 +92,9 @@ def _load_policies() -> None:
     _engine = local_engine
     _trust_policies = local_trust
 
-    if _trust_policies:
-        _trust_evaluator = PolicyEvaluator(_trust_policies)
+    # Clear or replace the trust evaluator so a reload without trust
+    # policies does not keep a stale evaluator from the previous load.
+    _trust_evaluator = PolicyEvaluator(_trust_policies) if _trust_policies else None
 
     _loaded_count = governance_count + len(_trust_policies)
     logger.info(

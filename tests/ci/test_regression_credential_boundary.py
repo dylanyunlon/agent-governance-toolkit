@@ -185,14 +185,17 @@ def test_rust_left_boundary_non_slack_rejects_only_alphanumeric() -> None:
 
     text = _RUST_REDACTOR.read_text(encoding="utf-8")
     in_left = False
+    brace_depth = 0
     for i, line in enumerate(text.splitlines(), 1):
         if "fn is_left_boundary_char" in line:
             in_left = True
-            continue
-        if in_left and line.strip().startswith("}"):
-            break
+            brace_depth = 0
         if not in_left:
             continue
+        brace_depth += line.count("{") - line.count("}")
+        # The function ends when brace depth returns to zero after opening
+        if in_left and brace_depth <= 0 and "{" not in line and "fn " not in line:
+            break
         # Skip the Slack arm (it correctly blocks '-')
         if "SlackToken" in line:
             continue
@@ -214,14 +217,17 @@ def test_rust_right_boundary_non_slack_rejects_alphanumeric() -> None:
 
     text = _RUST_REDACTOR.read_text(encoding="utf-8")
     in_right = False
+    brace_depth = 0
     for i, line in enumerate(text.splitlines(), 1):
         if "fn is_right_boundary_char" in line:
             in_right = True
-            continue
-        if in_right and line.strip().startswith("}"):
-            break
+            brace_depth = 0
         if not in_right:
             continue
+        brace_depth += line.count("{") - line.count("}")
+        # The function ends when brace depth returns to zero after opening
+        if in_right and brace_depth <= 0 and "{" not in line and "fn " not in line:
+            break
         # The catch-all arm must not be `_ => false`
         if "_ =>" in line and "false" in line and "is_ascii" not in line:
             pytest.fail(

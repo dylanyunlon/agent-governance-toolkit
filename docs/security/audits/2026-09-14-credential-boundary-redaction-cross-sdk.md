@@ -16,7 +16,7 @@ boundary-blocking character. A valid secret glued to a word character via `_` or
 `-` -- rotation notes, environment prefixes, config-file annotations -- passed
 through unredacted.
 
-C# fixes landed separately in #3934 and are not part of this PR.
+C# fixes will land separately in #3934 (open) and are not part of this PR.
 
 ### Per-SDK delta versus main
 
@@ -62,7 +62,8 @@ separator forms already accepted by `credential_redactor.py` (#3815).
 
 - **TypeScript `policy-audit.test.ts`**: boundary tests for GitHub, AWS,
   Google, and OpenAI tokens through the `AuditLogger.sanitizeValue` pipeline.
-  Includes `my-sk-...` pinning test for the OpenAI left-edge widening.
+  Includes `my-sk-...` pinning test for the OpenAI left-edge widening and
+  Google-key-ending-in-hyphen superset test for the `(?<=-)` tail branch.
 - **Rust `redactor.rs` (inline tests)**: left-edge, right-edge, both-edges,
   multi-credential, and still-rejects-alphanumeric tests. Updated
   `prefix_ghp_` test to assert detection (behaviour change from bug fix).
@@ -73,6 +74,8 @@ separator forms already accepted by `credential_redactor.py` (#3815).
 - **Python `test_content_scanner.py`**: SSN dash, space, dot separator tests;
   underscore-glued SSN; bare-nine-digit rejection.
 - **Source-level regression guard** (`test_regression_credential_boundary.py`):
-  scans TypeScript, Python, and Rego source files for `_` inside lookaround
-  character classes. The guard regex covers both lookbehind and lookahead forms.
-  Rust boundary logic is checked via match-arm assertions (not regex scanning).
+  scans TypeScript (`audit.ts`) and Python (`credential_redactor.py`) source
+  files for `_` inside lookaround character classes. The guard regex covers
+  both lookbehind and lookahead forms. Rust boundary logic is checked via
+  separate match-arm assertions that inspect `is_left_boundary_char` and
+  `is_right_boundary_char` source for `'_'` in non-Slack arms.

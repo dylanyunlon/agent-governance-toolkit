@@ -296,6 +296,40 @@ describe('AuditLogger', () => {
     expect(entry.arguments.config).toContain('[REDACTED]');
   });
 
+  it('redacts Google API key ending in hyphen when glued (superset branch, pinned)', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'mcp-proxy-audit-'));
+    tempDirs.push(tempDir);
+
+    const logPath = join(tempDir, 'audit.log');
+    const logger = new AuditLogger({ path: logPath, format: 'json' });
+
+    // Google API key whose 35th value char is '-', followed by alnum.
+    // The (?:(?![A-Za-z0-9])|(?<=-)) superset tail must still redact this.
+    const googleKey = `AIza${'A'.repeat(34)}-X`;
+    logger.log({
+      type: 'ai.agentmesh.tool.invoked',
+      tool: 'echo',
+      decision: 'allow',
+      arguments: {
+        config: googleKey,
+      },
+    });
+
+    logger.close();
+
+    const stream = Reflect.get(logger, 'stream');
+    if (stream) {
+      await once(stream, 'finish');
+    }
+
+    const entry = JSON.parse(readFileSync(logPath, 'utf-8').trim()) as {
+      arguments: Record<string, unknown>;
+    };
+
+    expect(entry.arguments.config).not.toContain('AIza');
+    expect(entry.arguments.config).toContain('[REDACTED]');
+  });
+
   it('redacts OpenAI token preceded by hyphen (left-edge widening, pinned)', async () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'mcp-proxy-audit-'));
     tempDirs.push(tempDir);
